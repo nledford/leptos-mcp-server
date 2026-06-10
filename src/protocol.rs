@@ -1,32 +1,33 @@
-//! MCP Protocol implementation
+//! MCP protocol implementation.
 //!
-//! JSON-RPC over stdio using newline-delimited JSON (NDJSON).
+//! The server speaks newline-delimited JSON-RPC 2.0 over stdio.
 
-use crate::tools::LeptosTools;
+use crate::tools::{
+    LeptosTools, ToolError, GET_DOCUMENTATION_TOOL, LEPTOS_DIAGNOSTICS_TOOL, LIST_SECTIONS_TOOL,
+};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, BufReader, Write};
 
-/// MCP Server
+const JSON_RPC_VERSION: &str = "2.0";
+const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
+
 pub struct McpServer {
     tools: LeptosTools,
 }
 
-/// JSON-RPC Request
 #[derive(Debug, Deserialize)]
 struct JsonRpcRequest {
-    #[allow(dead_code)]
-    jsonrpc: String,
+    jsonrpc: Option<String>,
     id: Option<Value>,
-    method: String,
+    method: Option<String>,
     params: Option<Value>,
 }
 
-/// JSON-RPC Response
 #[derive(Debug, Serialize)]
-struct JsonRpcResponse {
-    jsonrpc: String,
+pub struct JsonRpcResponse {
+    jsonrpc: &'static str,
     id: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<Value>,
@@ -35,9 +36,49 @@ struct JsonRpcResponse {
 }
 
 #[derive(Debug, Serialize)]
-struct JsonRpcError {
+pub struct JsonRpcError {
     code: i32,
     message: String,
+}
+
+#[derive(Debug)]
+enum ProtocolError {
+    ParseError(String),
+    InvalidRequest(String),
+    MethodNotFound(String),
+    InvalidParams(String),
+    InternalError(String),
+}
+
+#[derive(Debug, Deserialize)]
+struct ToolCallParams {
+    name: String,
+    #[serde(default)]
+    arguments: Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct DocumentationArgs {
+    section: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct DiagnosticsArgs {
+    code: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ToolContent {
+    #[serde(rename = "type")]
+    content_type: &'static str,
+    text: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ToolResult {
+    content: Vec<ToolContent>,
+    #[serde(rename = "structuredContent")]
+    structured_content: Value,
 }
 
 impl McpServer {
@@ -54,125 +95,125 @@ impl McpServer {
 
         for line in reader.lines() {
             let line = match line {
-                Ok(l) => l,
-                Err(e) => {
-                    eprintln!("Failed to read line: {}", e);
+                Ok(line) => line,
+                Err(error) => {
+                    tracing::error!(%error, "failed to read request line");
                     break;
                 }
             };
 
-            // Skip empty lines
-            if line.trim().is_empty() {
-                continue;
+            if let Some(response) = self.handle_line(&line).await {
+                let response_json = serde_json::to_string(&response)?;
+                writeln!(stdout, "{response_json}")?;
+                stdout.flush()?;
             }
-
-            // Parse JSON-RPC request
-            let request: JsonRpcRequest = match serde_json::from_str(&line) {
-                Ok(req) => req,
-                Err(e) => {
-                    eprintln!("Failed to parse request: {} - line: {}", e, line);
-                    continue;
-                }
-            };
-
-            // Notifications (no id) don't get a response per JSON-RPC spec
-            if request.id.is_none() {
-                // Just handle the notification silently
-                self.handle_notification(&request.method);
-                continue;
-            }
-
-            // Handle request and send response
-            let response = self.handle_request(&request).await;
-            let response_json = serde_json::to_string(&response)?;
-            writeln!(stdout, "{}", response_json)?;
-            stdout.flush()?;
         }
 
         Ok(())
     }
 
-    fn handle_notification(&self, method: &str) {
-        eprintln!("Received notification: {}", method);
-        // Notifications don't require responses
-    }
+    pub async fn handle_line(&self, line: &str) -> Option<JsonRpcResponse> {
+        if line.trim().is_empty() {
+            return None;
+        }
 
-    async fn handle_request(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
-        let id = request.id.clone().unwrap_or(Value::Null);
-
-        eprintln!("Handling request: {}", request.method);
-
-        let result = match request.method.as_str() {
-            "initialize" => self.handle_initialize(),
-            "tools/list" => self.handle_list_tools(),
-            "tools/call" => self.handle_call_tool(request.params.as_ref()),
-            _ => {
-                eprintln!("Unknown method: {}", request.method);
-                Ok(json!({}))
+        let value: Value = match serde_json::from_str(line) {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::warn!(%error, "failed to parse JSON-RPC request");
+                return Some(JsonRpcResponse::error(
+                    Value::Null,
+                    ProtocolError::ParseError("Parse error".to_string()),
+                ));
             }
         };
 
-        match result {
-            Ok(value) => JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: Some(value),
-                error: None,
-            },
-            Err(msg) => JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: None,
-                error: Some(JsonRpcError {
-                    code: -32600,
-                    message: msg,
-                }),
-            },
+        let request_id = value.get("id").cloned().unwrap_or(Value::Null);
+        let request: JsonRpcRequest = match serde_json::from_value(value) {
+            Ok(request) => request,
+            Err(error) => {
+                return Some(JsonRpcResponse::error(
+                    request_id,
+                    ProtocolError::InvalidRequest(error.to_string()),
+                ));
+            }
+        };
+
+        let is_notification = request.id.is_none();
+        match self.handle_request(request).await {
+            Ok(_) if is_notification => {
+                tracing::debug!("handled JSON-RPC notification");
+                None
+            }
+            Ok(result) => Some(JsonRpcResponse::success(request_id, result)),
+            Err(error) if is_notification && !matches!(error, ProtocolError::InvalidRequest(_)) => {
+                tracing::debug!("ignored failed JSON-RPC notification");
+                None
+            }
+            Err(error) => Some(JsonRpcResponse::error(request_id, error)),
         }
     }
 
-    fn handle_initialize(&self) -> Result<Value, String> {
-        Ok(json!({
-            "protocolVersion": "2024-11-05",
+    async fn handle_request(&self, request: JsonRpcRequest) -> Result<Value, ProtocolError> {
+        validate_jsonrpc_version(&request)?;
+        let method = request
+            .method
+            .as_deref()
+            .ok_or_else(|| ProtocolError::InvalidRequest("missing method".to_string()))?;
+
+        tracing::debug!(method, "handling request");
+
+        match method {
+            "initialize" => Ok(self.handle_initialize()),
+            "tools/list" => Ok(self.handle_list_tools()),
+            "tools/call" => self.handle_call_tool(request.params),
+            method => Err(ProtocolError::MethodNotFound(method.to_string())),
+        }
+    }
+
+    fn handle_initialize(&self) -> Value {
+        json!({
+            "protocolVersion": MCP_PROTOCOL_VERSION,
             "capabilities": {
                 "tools": {}
             },
             "serverInfo": {
                 "name": "leptos-mcp-server",
-                "version": "0.1.0"
+                "version": env!("CARGO_PKG_VERSION")
             }
-        }))
+        })
     }
 
-    fn handle_list_tools(&self) -> Result<Value, String> {
-        Ok(json!({
+    fn handle_list_tools(&self) -> Value {
+        json!({
             "tools": [
                 {
-                    "name": "list-sections",
-                    "description": "List all available Leptos documentation sections with their use cases",
+                    "name": LIST_SECTIONS_TOOL,
+                    "description": "List all available Leptos documentation sections with canonical ids, aliases, and version metadata",
                     "inputSchema": {
                         "type": "object",
                         "properties": {},
-                        "required": []
+                        "additionalProperties": false
                     }
                 },
                 {
-                    "name": "get-documentation",
-                    "description": "Get Leptos documentation for a specific section. Pass section name like 'signals', 'components', 'routing'",
+                    "name": GET_DOCUMENTATION_TOOL,
+                    "description": "Get Leptos documentation for a canonical section id or declared alias",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
                             "section": {
                                 "type": "string",
-                                "description": "Section name or path to retrieve"
+                                "description": "Canonical section id or declared alias from list-sections"
                             }
                         },
-                        "required": ["section"]
+                        "required": ["section"],
+                        "additionalProperties": false
                     }
                 },
                 {
-                    "name": "leptos-autofixer",
-                    "description": "Analyze Leptos code and suggest fixes for common issues",
+                    "name": LEPTOS_DIAGNOSTICS_TOOL,
+                    "description": "Analyze Leptos code and return structured diagnostics",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
@@ -181,44 +222,211 @@ impl McpServer {
                                 "description": "Leptos code to analyze"
                             }
                         },
-                        "required": ["code"]
+                        "required": ["code"],
+                        "additionalProperties": false
                     }
                 }
             ]
-        }))
+        })
     }
 
-    fn handle_call_tool(&self, params: Option<&Value>) -> Result<Value, String> {
-        let params = params.ok_or("Missing params")?;
-        let name = params
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or("Missing tool name")?;
-        let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+    fn handle_call_tool(&self, params: Option<Value>) -> Result<Value, ProtocolError> {
+        let params = params.ok_or_else(|| {
+            ProtocolError::InvalidParams("tools/call params are required".to_string())
+        })?;
+        let call: ToolCallParams = serde_json::from_value(params)
+            .map_err(|error| ProtocolError::InvalidParams(error.to_string()))?;
 
-        let result = match name {
-            "list-sections" => self.tools.list_sections(),
-            "get-documentation" => {
-                let section = arguments
-                    .get("section")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                self.tools.get_documentation(section)
+        let output = match call.name.as_str() {
+            LIST_SECTIONS_TOOL => self.tools.list_sections(),
+            GET_DOCUMENTATION_TOOL => {
+                let args: DocumentationArgs = parse_arguments(call.arguments)?;
+                self.tools.get_documentation(&args.section)?
             }
-            "leptos-autofixer" => {
-                let code = arguments.get("code").and_then(|v| v.as_str()).unwrap_or("");
-                self.tools.leptos_autofixer(code)
+            LEPTOS_DIAGNOSTICS_TOOL => {
+                let args: DiagnosticsArgs = parse_arguments(call.arguments)?;
+                self.tools.diagnose_leptos_code(&args.code)?
             }
-            _ => return Err(format!("Unknown tool: {}", name)),
+            _ => return Err(ToolError::UnknownTool(call.name).into()),
         };
 
-        Ok(json!({
-            "content": [
-                {
-                    "type": "text",
-                    "text": result
-                }
-            ]
-        }))
+        let result = ToolResult {
+            content: vec![ToolContent {
+                content_type: "text",
+                text: output.text,
+            }],
+            structured_content: serde_json::to_value(output.structured)
+                .map_err(|error| ProtocolError::InternalError(error.to_string()))?,
+        };
+
+        serde_json::to_value(result)
+            .map_err(|error| ProtocolError::InternalError(error.to_string()))
+    }
+}
+
+impl Default for McpServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl JsonRpcResponse {
+    fn success(id: Value, result: Value) -> Self {
+        Self {
+            jsonrpc: JSON_RPC_VERSION,
+            id,
+            result: Some(result),
+            error: None,
+        }
+    }
+
+    fn error(id: Value, error: ProtocolError) -> Self {
+        let error = JsonRpcError {
+            code: error.code(),
+            message: error.message(),
+        };
+
+        Self {
+            jsonrpc: JSON_RPC_VERSION,
+            id,
+            result: None,
+            error: Some(error),
+        }
+    }
+}
+
+impl ProtocolError {
+    fn code(&self) -> i32 {
+        match self {
+            ProtocolError::ParseError(_) => -32700,
+            ProtocolError::InvalidRequest(_) => -32600,
+            ProtocolError::MethodNotFound(_) => -32601,
+            ProtocolError::InvalidParams(_) => -32602,
+            ProtocolError::InternalError(_) => -32603,
+        }
+    }
+
+    fn message(self) -> String {
+        match self {
+            ProtocolError::ParseError(message)
+            | ProtocolError::InvalidRequest(message)
+            | ProtocolError::InvalidParams(message)
+            | ProtocolError::InternalError(message) => message,
+            ProtocolError::MethodNotFound(method) => format!("Method not found: {method}"),
+        }
+    }
+}
+
+impl From<ToolError> for ProtocolError {
+    fn from(error: ToolError) -> Self {
+        ProtocolError::InvalidParams(error.message())
+    }
+}
+
+fn validate_jsonrpc_version(request: &JsonRpcRequest) -> Result<(), ProtocolError> {
+    match request.jsonrpc.as_deref() {
+        Some(JSON_RPC_VERSION) => Ok(()),
+        Some(version) => Err(ProtocolError::InvalidRequest(format!(
+            "unsupported JSON-RPC version: {version}"
+        ))),
+        None => Err(ProtocolError::InvalidRequest(
+            "missing JSON-RPC version".to_string(),
+        )),
+    }
+}
+
+fn parse_arguments<T>(arguments: Value) -> Result<T, ProtocolError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    serde_json::from_value(arguments)
+        .map_err(|error| ProtocolError::InvalidParams(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn error_code(response: &JsonRpcResponse) -> i32 {
+        response.error.as_ref().expect("expected error").code
+    }
+
+    fn result(response: &JsonRpcResponse) -> &Value {
+        response.result.as_ref().expect("expected result")
+    }
+
+    #[tokio::test]
+    async fn malformed_json_returns_parse_error_response() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line("{bad json}")
+            .await
+            .expect("parse errors should receive a response");
+
+        assert_eq!(error_code(&response), -32700);
+    }
+
+    #[tokio::test]
+    async fn unknown_method_returns_method_not_found() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"unknown"}"#)
+            .await
+            .expect("request should receive a response");
+
+        assert_eq!(error_code(&response), -32601);
+    }
+
+    #[tokio::test]
+    async fn invalid_jsonrpc_version_is_rejected() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(r#"{"jsonrpc":"1.0","id":1,"method":"tools/list"}"#)
+            .await
+            .expect("request should receive a response");
+
+        assert_eq!(error_code(&response), -32600);
+    }
+
+    #[tokio::test]
+    async fn notifications_do_not_receive_responses() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
+            .await;
+
+        assert!(response.is_none());
+    }
+
+    #[tokio::test]
+    async fn missing_documentation_section_is_invalid_params() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get-documentation","arguments":{}}}"#,
+            )
+            .await
+            .expect("request should receive a response");
+
+        assert_eq!(error_code(&response), -32602);
+    }
+
+    #[tokio::test]
+    async fn diagnostics_tool_returns_structured_content() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"leptos-diagnostics","arguments":{"code":"fn App() -> impl IntoView { view! { <p>{count.get()}</p> } }"}}}"#,
+            )
+            .await
+            .expect("request should receive a response");
+
+        let structured = &result(&response)["structuredContent"];
+        assert_eq!(structured["kind"], "diagnostics");
+        assert!(structured["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|diagnostic| { diagnostic["rule_id"] == "leptos.missing-component-attribute" }));
     }
 }

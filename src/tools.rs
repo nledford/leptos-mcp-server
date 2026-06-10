@@ -1,10 +1,56 @@
-//! MCP Tools for Leptos
-//!
-//! Implements the tool handlers for the MCP server.
+//! MCP tool domain handlers.
 
-use crate::docs;
+use crate::diagnostics::{render_diagnostics, DiagnosticsOutput, LeptosDiagnostics};
+use crate::docs::{self, DocSection, SectionLookupError};
+use serde::Serialize;
 
-/// Leptos Tools implementation
+pub const LIST_SECTIONS_TOOL: &str = "list-sections";
+pub const GET_DOCUMENTATION_TOOL: &str = "get-documentation";
+pub const LEPTOS_DIAGNOSTICS_TOOL: &str = "leptos-diagnostics";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolError {
+    InvalidParams(String),
+    UnknownTool(String),
+    DocumentationLookup(SectionLookupError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SectionSummary {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub path: &'static str,
+    pub use_cases: &'static str,
+    pub aliases: &'static [&'static str],
+    pub leptos_version: &'static str,
+    pub source: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ListSectionsOutput {
+    pub sections: Vec<SectionSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DocumentationOutput {
+    pub section: SectionSummary,
+    pub content: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum StructuredToolOutput {
+    ListSections(ListSectionsOutput),
+    Documentation(DocumentationOutput),
+    Diagnostics(DiagnosticsOutput),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolOutput {
+    pub text: String,
+    pub structured: StructuredToolOutput,
+}
+
 pub struct LeptosTools {}
 
 impl LeptosTools {
@@ -12,79 +58,136 @@ impl LeptosTools {
         Self {}
     }
 
-    /// List all available Leptos documentation sections
-    pub fn list_sections(&self) -> String {
-        let sections = docs::list_sections();
-        let output: Vec<String> = sections
+    pub fn list_sections(&self) -> ToolOutput {
+        let output = ListSectionsOutput {
+            sections: docs::list_sections().iter().map(section_summary).collect(),
+        };
+        let text = output
+            .sections
             .iter()
-            .map(|s| {
+            .map(|section| {
                 format!(
-                    "* title: {}, use_cases: {}, path: {}",
-                    s.title, s.use_cases, s.path
+                    "* id: {}, title: {}, use_cases: {}, aliases: {}",
+                    section.id,
+                    section.title,
+                    section.use_cases,
+                    section.aliases.join(", ")
                 )
             })
-            .collect();
-        output.join("\n")
-    }
+            .collect::<Vec<_>>()
+            .join("\n");
 
-    /// Get documentation content for a specific section
-    pub fn get_documentation(&self, section: &str) -> String {
-        if let Some(doc) = docs::get_section(section) {
-            format!("# {}\n\n{}", doc.title, doc.content)
-        } else {
-            format!(
-                "Section '{}' not found. Use list-sections to see available sections.",
-                section
-            )
+        ToolOutput {
+            text,
+            structured: StructuredToolOutput::ListSections(output),
         }
     }
 
-    /// Analyze Leptos code and suggest fixes
-    pub fn leptos_autofixer(&self, code: &str) -> String {
-        let mut suggestions = Vec::new();
+    pub fn get_documentation(&self, section: &str) -> Result<ToolOutput, ToolError> {
+        let doc = docs::get_section(section).map_err(ToolError::DocumentationLookup)?;
+        let output = DocumentationOutput {
+            section: section_summary(doc),
+            content: doc.content,
+        };
 
-        // TODO: Add more checks
-        
-        // Check for common issues
+        Ok(ToolOutput {
+            text: format!("# {}\n\n{}", doc.title, doc.content),
+            structured: StructuredToolOutput::Documentation(output),
+        })
+    }
 
-        // 1. Check for direct .get() in view without move ||
-        if code.contains(".get()") && !code.contains("move ||") && code.contains("view!") {
-            suggestions.push(
-                "ERROR: Found .get() in view without `move ||`. \
-                 Reactive values should use `{move || value.get()}`",
-            );
+    pub fn diagnose_leptos_code(&self, code: &str) -> Result<ToolOutput, ToolError> {
+        if code.trim().is_empty() {
+            return Err(ToolError::InvalidParams(
+                "code must be a non-empty string".to_string(),
+            ));
         }
 
-        // 2. Check for signal without destructuring
-        if code.contains("let signal =") || code.contains("create_signal") {
-            suggestions.push(
-                "WARNING: Consider using `let (getter, setter) = signal(value)` pattern for clarity",
-            );
-        }
+        let output = LeptosDiagnostics::analyze(code);
 
-        // 3. Check for missing #[component] macro
-        if code.contains("-> impl IntoView") && !code.contains("#[component]") {
-            suggestions.push(
-                "ERROR: Functions returning `impl IntoView` should have #[component] attribute",
-            );
-        }
+        Ok(ToolOutput {
+            text: render_diagnostics(&output),
+            structured: StructuredToolOutput::Diagnostics(output),
+        })
+    }
+}
 
-        // 4. Check for server function without proper error handling
-        if code.contains("#[server") && !code.contains("ServerFnError") {
-            suggestions.push("INFO: Server functions should return Result<T, ServerFnError>");
-        }
+impl Default for LeptosTools {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-        // 5. Check for deprecated create_signal
-        if code.contains("create_signal") {
-            suggestions.push(
-                "INFO: In Leptos 0.8+, use `signal()` instead of `create_signal()`",
-            );
-        }
+fn section_summary(section: &DocSection) -> SectionSummary {
+    SectionSummary {
+        id: section.id,
+        title: section.title,
+        path: section.path,
+        use_cases: section.use_cases,
+        aliases: section.aliases,
+        leptos_version: section.leptos_version,
+        source: section.source,
+    }
+}
 
-        if suggestions.is_empty() {
-            "✓ No issues found. Code looks good!".to_string()
-        } else {
-            suggestions.join("\n")
+impl ToolError {
+    pub fn message(&self) -> String {
+        match self {
+            ToolError::InvalidParams(message) => message.clone(),
+            ToolError::UnknownTool(name) => format!("Unknown tool: {name}"),
+            ToolError::DocumentationLookup(SectionLookupError::Empty) => {
+                "section must be a non-empty canonical id or alias".to_string()
+            }
+            ToolError::DocumentationLookup(SectionLookupError::Unknown { query }) => {
+                format!("Unknown documentation section: {query}")
+            }
+            ToolError::DocumentationLookup(SectionLookupError::Ambiguous { query, matches }) => {
+                format!(
+                    "Ambiguous documentation section '{query}'. Matching sections: {}",
+                    matches.join(", ")
+                )
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_sections_returns_structured_catalog_metadata() {
+        let tools = LeptosTools::new();
+        let output = tools.list_sections();
+
+        match output.structured {
+            StructuredToolOutput::ListSections(list) => {
+                assert!(list.sections.iter().any(|section| section.id == "signals"));
+            }
+            _ => panic!("expected list sections output"),
+        }
+    }
+
+    #[test]
+    fn get_documentation_rejects_missing_section_identity() {
+        let tools = LeptosTools::new();
+        let error = tools
+            .get_documentation("")
+            .expect_err("empty section must fail");
+
+        assert_eq!(
+            error.message(),
+            "section must be a non-empty canonical id or alias"
+        );
+    }
+
+    #[test]
+    fn diagnostics_reject_empty_code() {
+        let tools = LeptosTools::new();
+        let error = tools
+            .diagnose_leptos_code("  ")
+            .expect_err("empty code must fail");
+
+        assert_eq!(error.message(), "code must be a non-empty string");
     }
 }
