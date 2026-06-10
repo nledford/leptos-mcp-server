@@ -67,6 +67,22 @@ fn stdio_process_returns_parse_errors_as_json() {
 }
 
 #[test]
+fn stdio_process_does_not_write_responses_for_notifications() {
+    let output = run_server(
+        r#"{"jsonrpc":"2.0","method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"missing/method","params":{}}
+{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+"#,
+    );
+
+    assert!(output.status.success());
+    let responses = stdout_json_lines(&output);
+    assert_eq!(responses.len(), 1);
+    assert_eq!(responses[0]["id"], 1);
+    assert!(responses[0]["result"]["tools"].is_array());
+}
+
+#[test]
 fn stdio_process_rejects_oversized_unterminated_live_input_before_stdin_close() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_leptos-mcp-server"))
         .stdin(Stdio::piped())

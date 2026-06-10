@@ -1,18 +1,23 @@
 //! MCP protocol implementation.
 //!
-//! The server speaks newline-delimited JSON-RPC 2.0 over stdio.
+//! This module owns JSON-RPC/MCP validation, notification semantics, and routing
+//! requests to domain capability handlers. Byte framing belongs in `transport`,
+//! while pure capability/catalog construction belongs in `catalog` and the
+//! domain modules it aggregates.
 
+use crate::catalog;
 use crate::docs;
 use crate::prompts;
 use crate::tools::{
     GET_DOCUMENTATION_TOOL, LEPTOS_AXUM_RECIPE_TOOL, LEPTOS_DIAGNOSTICS_TOOL, LIST_SECTIONS_TOOL,
     LOOKUP_API_TOOL, LeptosTools, SEARCH_DOCS_TOOL, ToolError,
 };
+use crate::transport::{LineRead, read_limited_line};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufReader, Write};
 
 const JSON_RPC_VERSION: &str = "2.0";
 const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
@@ -27,6 +32,18 @@ struct JsonRpcRequest {
     jsonrpc: Option<String>,
     id: Option<Value>,
     method: Option<String>,
+    params: Option<Value>,
+}
+
+#[derive(Debug)]
+struct JsonRpcEnvelope {
+    id: Option<Value>,
+    call: JsonRpcCall,
+}
+
+#[derive(Debug)]
+struct JsonRpcCall {
+    method: String,
     params: Option<Value>,
 }
 
@@ -127,11 +144,6 @@ struct ToolResult {
     structured_content: Value,
 }
 
-enum LineRead {
-    Line(String),
-    Oversized,
-}
-
 impl McpServer {
     pub fn new() -> Self {
         Self {
@@ -202,8 +214,14 @@ impl McpServer {
             }
         };
 
-        let is_notification = request.id.is_none();
-        match self.handle_request(request).await {
+        let envelope = match validate_json_rpc_request(request) {
+            Ok(envelope) => envelope,
+            Err(error) => return Some(JsonRpcResponse::error(request_id, error)),
+        };
+
+        let request_id = envelope.id.clone().unwrap_or(Value::Null);
+        let is_notification = envelope.id.is_none();
+        match self.handle_request(envelope.call).await {
             Ok(_) if is_notification => {
                 tracing::debug!("handled JSON-RPC notification");
                 None
@@ -217,12 +235,8 @@ impl McpServer {
         }
     }
 
-    async fn handle_request(&self, request: JsonRpcRequest) -> Result<Value, ProtocolError> {
-        validate_jsonrpc_version(&request)?;
-        let method = request
-            .method
-            .as_deref()
-            .ok_or_else(|| ProtocolError::InvalidRequest("missing method".to_string()))?;
+    async fn handle_request(&self, request: JsonRpcCall) -> Result<Value, ProtocolError> {
+        let method = request.method.as_str();
 
         tracing::debug!(method, "handling request");
 
@@ -239,115 +253,11 @@ impl McpServer {
     }
 
     fn handle_initialize(&self) -> Value {
-        json!({
-            "protocolVersion": MCP_PROTOCOL_VERSION,
-            "capabilities": {
-                "tools": {},
-                "resources": {},
-                "prompts": {}
-            },
-            "serverInfo": {
-                "name": "leptos-mcp-server",
-                "version": env!("CARGO_PKG_VERSION")
-            }
-        })
+        catalog::initialize_result(MCP_PROTOCOL_VERSION, env!("CARGO_PKG_VERSION"))
     }
 
     fn handle_list_tools(&self) -> Value {
-        json!({
-            "tools": [
-                {
-                    "name": LIST_SECTIONS_TOOL,
-                    "description": "List all available Leptos documentation sections with canonical ids, aliases, and version metadata",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {},
-                        "additionalProperties": false
-                    }
-                },
-                {
-                    "name": GET_DOCUMENTATION_TOOL,
-                    "description": "Get Leptos documentation for a canonical section id or declared alias",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "section": {
-                                "type": "string",
-                                "description": "Canonical section id or declared alias from list-sections"
-                            }
-                        },
-                        "required": ["section"],
-                        "additionalProperties": false
-                    }
-                },
-                {
-                    "name": LEPTOS_DIAGNOSTICS_TOOL,
-                    "description": "Analyze Leptos code and return structured diagnostics",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "Leptos code to analyze",
-                                "maxLength": crate::tools::MAX_DIAGNOSTIC_CODE_BYTES
-                            }
-                        },
-                        "required": ["code"],
-                        "additionalProperties": false
-                    }
-                },
-                {
-                    "name": SEARCH_DOCS_TOOL,
-                    "description": "Search Leptos, leptos_axum, and Axum documentation sections by task, API, or failure mode",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "Task, API, error, or workflow to search for"
-                            }
-                        },
-                        "required": ["query"],
-                        "additionalProperties": false
-                    }
-                },
-                {
-                    "name": LOOKUP_API_TOOL,
-                    "description": "Look up a curated Leptos, leptos_axum, or Axum public API symbol",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "Symbol name or declared alias"
-                            },
-                            "crate": {
-                                "type": "string",
-                                "description": "Optional crate filter: leptos, leptos_axum, or axum",
-                                "enum": ["leptos", "leptos_axum", "axum"]
-                            }
-                        },
-                        "required": ["query"],
-                        "additionalProperties": false
-                    }
-                },
-                {
-                    "name": LEPTOS_AXUM_RECIPE_TOOL,
-                    "description": "Return a task-oriented recipe for common Leptos + Axum workflows",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "recipe": {
-                                "type": "string",
-                                "description": "Recipe id or alias such as ssr-app, server-functions, static-assets, custom-handler, state-context, database-query-patterns, or wasm-runtime"
-                            }
-                        },
-                        "required": ["recipe"],
-                        "additionalProperties": false
-                    }
-                }
-            ]
-        })
+        catalog::tools_list_result()
     }
 
     fn handle_call_tool(&self, params: Option<Value>) -> Result<Value, ProtocolError> {
@@ -400,19 +310,7 @@ impl McpServer {
     }
 
     fn handle_list_resources(&self) -> Value {
-        let resources = docs::list_sections()
-            .iter()
-            .map(|section| {
-                json!({
-                    "uri": docs::resource_uri(section),
-                    "name": section.title,
-                    "description": section.use_cases,
-                    "mimeType": "text/markdown"
-                })
-            })
-            .collect::<Vec<_>>();
-
-        json!({ "resources": resources })
+        catalog::resources_list_result()
     }
 
     fn handle_read_resource(&self, params: Option<Value>) -> Result<Value, ProtocolError> {
@@ -437,18 +335,7 @@ impl McpServer {
     }
 
     fn handle_list_prompts(&self) -> Value {
-        let prompts = prompts::all_prompts()
-            .iter()
-            .map(|prompt| {
-                json!({
-                    "name": prompt.name,
-                    "description": prompt.description,
-                    "arguments": prompt.arguments
-                })
-            })
-            .collect::<Vec<_>>();
-
-        json!({ "prompts": prompts })
+        catalog::prompts_list_result()
     }
 
     fn handle_get_prompt(&self, params: Option<Value>) -> Result<Value, ProtocolError> {
@@ -548,6 +435,21 @@ fn validate_jsonrpc_version(request: &JsonRpcRequest) -> Result<(), ProtocolErro
     }
 }
 
+fn validate_json_rpc_request(request: JsonRpcRequest) -> Result<JsonRpcEnvelope, ProtocolError> {
+    validate_jsonrpc_version(&request)?;
+    let method = request
+        .method
+        .ok_or_else(|| ProtocolError::InvalidRequest("missing method".to_string()))?;
+
+    Ok(JsonRpcEnvelope {
+        id: request.id,
+        call: JsonRpcCall {
+            method,
+            params: request.params,
+        },
+    })
+}
+
 fn prompt_error_message(error: prompts::PromptLookupError) -> String {
     match error {
         prompts::PromptLookupError::Empty => "prompt name must be non-empty".to_string(),
@@ -579,109 +481,11 @@ fn oversized_line_error_response() -> JsonRpcResponse {
     )
 }
 
-fn read_limited_line<R: BufRead>(reader: &mut R, max_bytes: usize) -> io::Result<Option<LineRead>> {
-    let mut bytes = Vec::new();
-
-    loop {
-        let available = reader.fill_buf()?;
-        if available.is_empty() {
-            return if bytes.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(LineRead::Line(decode_line(bytes))))
-            };
-        }
-
-        if let Some(newline_index) = available.iter().position(|byte| *byte == b'\n') {
-            let take = newline_index + 1;
-            if bytes.len() + newline_index > max_bytes {
-                let take_until_oversized = max_bytes.saturating_sub(bytes.len()) + 1;
-                reader.consume(take_until_oversized);
-                return Ok(Some(LineRead::Oversized));
-            }
-            bytes.extend_from_slice(&available[..take]);
-            reader.consume(take);
-            return Ok(Some(LineRead::Line(decode_line(bytes))));
-        }
-
-        let take = available.len();
-        if bytes.len() + take > max_bytes {
-            let take_until_oversized = max_bytes.saturating_sub(bytes.len()) + 1;
-            reader.consume(take_until_oversized);
-            return Ok(Some(LineRead::Oversized));
-        }
-
-        bytes.extend_from_slice(available);
-        reader.consume(take);
-    }
-}
-
-fn decode_line(mut bytes: Vec<u8>) -> String {
-    if bytes.last() == Some(&b'\n') {
-        bytes.pop();
-    }
-    if bytes.last() == Some(&b'\r') {
-        bytes.pop();
-    }
-
-    String::from_utf8_lossy(&bytes).into_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tools::MAX_DIAGNOSTIC_CODE_BYTES;
-    use std::cmp;
-    use std::io::Read;
-
-    struct InstrumentedReader {
-        input: Vec<u8>,
-        position: usize,
-        chunks: Vec<usize>,
-        fill_buf_calls: Vec<(usize, usize)>,
-        consume_calls: Vec<usize>,
-    }
-
-    impl InstrumentedReader {
-        fn new(input: Vec<u8>, chunks: Vec<usize>) -> Self {
-            Self {
-                input,
-                position: 0,
-                chunks,
-                fill_buf_calls: Vec::new(),
-                consume_calls: Vec::new(),
-            }
-        }
-    }
-
-    impl Read for InstrumentedReader {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            let available = self.fill_buf()?;
-            let take = cmp::min(available.len(), buf.len());
-            buf[..take].copy_from_slice(&available[..take]);
-            self.consume(take);
-            Ok(take)
-        }
-    }
-
-    impl BufRead for InstrumentedReader {
-        fn fill_buf(&mut self) -> io::Result<&[u8]> {
-            let chunk = self
-                .chunks
-                .get(self.fill_buf_calls.len())
-                .copied()
-                .unwrap_or(usize::MAX);
-            let end = cmp::min(self.input.len(), self.position.saturating_add(chunk));
-            self.fill_buf_calls
-                .push((self.position, end - self.position));
-            Ok(&self.input[self.position..end])
-        }
-
-        fn consume(&mut self, amt: usize) {
-            self.consume_calls.push(amt);
-            self.position += amt;
-        }
-    }
+    use std::collections::BTreeSet;
 
     fn error_code(response: &JsonRpcResponse) -> i32 {
         response.error.as_ref().expect("expected error").code
@@ -693,6 +497,24 @@ mod tests {
 
     fn result(response: &JsonRpcResponse) -> &Value {
         response.result.as_ref().expect("expected result")
+    }
+
+    fn object_keys(value: &Value) -> BTreeSet<&str> {
+        value
+            .as_object()
+            .expect("value should be an object")
+            .keys()
+            .map(String::as_str)
+            .collect()
+    }
+
+    fn string_array(value: &Value) -> Vec<&str> {
+        value
+            .as_array()
+            .expect("value should be an array")
+            .iter()
+            .map(|value| value.as_str().expect("array item should be a string"))
+            .collect()
     }
 
     #[tokio::test]
@@ -818,6 +640,141 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn initialize_response_pins_wire_contract() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(r#"{"jsonrpc":"2.0","id":"init-1","method":"initialize","params":{}}"#)
+            .await
+            .expect("initialize should receive a response");
+
+        assert_eq!(response_id(&response), "init-1");
+        let result = result(&response);
+        assert_eq!(
+            object_keys(result),
+            BTreeSet::from(["capabilities", "protocolVersion", "serverInfo"])
+        );
+        assert_eq!(result["protocolVersion"], MCP_PROTOCOL_VERSION);
+        assert_eq!(
+            object_keys(&result["capabilities"]),
+            BTreeSet::from(["prompts", "resources", "tools"])
+        );
+        assert_eq!(
+            object_keys(&result["capabilities"]["tools"]),
+            BTreeSet::new()
+        );
+        assert_eq!(
+            object_keys(&result["capabilities"]["resources"]),
+            BTreeSet::new()
+        );
+        assert_eq!(
+            object_keys(&result["capabilities"]["prompts"]),
+            BTreeSet::new()
+        );
+        assert_eq!(result["serverInfo"]["name"], "leptos-mcp-server");
+        assert!(result["serverInfo"]["version"].is_string());
+    }
+
+    #[tokio::test]
+    async fn tools_list_pins_tool_names_and_input_schemas() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#)
+            .await
+            .expect("tools/list should receive a response");
+
+        let tools = result(&response)["tools"]
+            .as_array()
+            .expect("tools should be an array");
+        let by_name = tools
+            .iter()
+            .map(|tool| {
+                (
+                    tool["name"].as_str().expect("tool name should be a string"),
+                    tool,
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(
+            by_name.keys().copied().collect::<Vec<_>>(),
+            vec![
+                GET_DOCUMENTATION_TOOL,
+                LEPTOS_AXUM_RECIPE_TOOL,
+                LEPTOS_DIAGNOSTICS_TOOL,
+                LIST_SECTIONS_TOOL,
+                LOOKUP_API_TOOL,
+                SEARCH_DOCS_TOOL,
+            ]
+        );
+
+        let list_schema = &by_name[LIST_SECTIONS_TOOL]["inputSchema"];
+        assert_eq!(list_schema["type"], "object");
+        assert_eq!(list_schema["additionalProperties"], false);
+        assert_eq!(object_keys(&list_schema["properties"]), BTreeSet::new());
+        assert!(list_schema.get("required").is_none());
+
+        let documentation_schema = &by_name[GET_DOCUMENTATION_TOOL]["inputSchema"];
+        assert_eq!(
+            object_keys(&documentation_schema["properties"]),
+            BTreeSet::from(["section"])
+        );
+        assert_eq!(
+            documentation_schema["properties"]["section"]["type"],
+            "string"
+        );
+        assert_eq!(
+            string_array(&documentation_schema["required"]),
+            vec!["section"]
+        );
+        assert_eq!(documentation_schema["additionalProperties"], false);
+
+        let diagnostics_schema = &by_name[LEPTOS_DIAGNOSTICS_TOOL]["inputSchema"];
+        assert_eq!(
+            object_keys(&diagnostics_schema["properties"]),
+            BTreeSet::from(["code"])
+        );
+        assert_eq!(diagnostics_schema["properties"]["code"]["type"], "string");
+        assert_eq!(
+            diagnostics_schema["properties"]["code"]["maxLength"],
+            MAX_DIAGNOSTIC_CODE_BYTES
+        );
+        assert_eq!(string_array(&diagnostics_schema["required"]), vec!["code"]);
+        assert_eq!(diagnostics_schema["additionalProperties"], false);
+
+        let search_schema = &by_name[SEARCH_DOCS_TOOL]["inputSchema"];
+        assert_eq!(
+            object_keys(&search_schema["properties"]),
+            BTreeSet::from(["query"])
+        );
+        assert_eq!(search_schema["properties"]["query"]["type"], "string");
+        assert_eq!(string_array(&search_schema["required"]), vec!["query"]);
+        assert_eq!(search_schema["additionalProperties"], false);
+
+        let lookup_schema = &by_name[LOOKUP_API_TOOL]["inputSchema"];
+        assert_eq!(
+            object_keys(&lookup_schema["properties"]),
+            BTreeSet::from(["crate", "query"])
+        );
+        assert_eq!(lookup_schema["properties"]["query"]["type"], "string");
+        assert_eq!(lookup_schema["properties"]["crate"]["type"], "string");
+        assert_eq!(
+            string_array(&lookup_schema["properties"]["crate"]["enum"]),
+            vec!["leptos", "leptos_axum", "axum"]
+        );
+        assert_eq!(string_array(&lookup_schema["required"]), vec!["query"]);
+        assert_eq!(lookup_schema["additionalProperties"], false);
+
+        let recipe_schema = &by_name[LEPTOS_AXUM_RECIPE_TOOL]["inputSchema"];
+        assert_eq!(
+            object_keys(&recipe_schema["properties"]),
+            BTreeSet::from(["recipe"])
+        );
+        assert_eq!(recipe_schema["properties"]["recipe"]["type"], "string");
+        assert_eq!(string_array(&recipe_schema["required"]), vec!["recipe"]);
+        assert_eq!(recipe_schema["additionalProperties"], false);
+    }
+
+    #[tokio::test]
     async fn tools_list_includes_search_api_lookup_and_recipes() {
         let server = McpServer::new();
         let response = server
@@ -902,6 +859,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resources_list_pins_resource_shape() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"resources/list","params":{}}"#)
+            .await
+            .expect("resources/list should receive a response");
+
+        let resources = result(&response)["resources"]
+            .as_array()
+            .expect("resources should be an array");
+        assert_eq!(resources.len(), docs::list_sections().len());
+        for resource in resources {
+            assert_eq!(
+                object_keys(resource),
+                BTreeSet::from(["description", "mimeType", "name", "uri"])
+            );
+            assert!(
+                resource["uri"]
+                    .as_str()
+                    .expect("uri should be a string")
+                    .starts_with("leptos://docs/")
+            );
+            assert!(resource["name"].is_string());
+            assert!(resource["description"].is_string());
+            assert_eq!(resource["mimeType"], "text/markdown");
+        }
+
+        let read = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"leptos://docs/axum"}}"#,
+            )
+            .await
+            .expect("resources/read should receive a response");
+        let result = result(&read);
+        assert_eq!(object_keys(result), BTreeSet::from(["contents"]));
+        let contents = result["contents"]
+            .as_array()
+            .expect("resource contents should be an array");
+        assert_eq!(contents.len(), 1);
+        assert_eq!(
+            object_keys(&contents[0]),
+            BTreeSet::from(["mimeType", "text", "uri"])
+        );
+        assert_eq!(contents[0]["uri"], "leptos://docs/axum");
+        assert_eq!(contents[0]["mimeType"], "text/markdown");
+        assert!(contents[0]["text"].is_string());
+    }
+
+    #[tokio::test]
     async fn prompts_list_and_get_render_workflow_prompt() {
         let server = McpServer::new();
         let list = server
@@ -930,6 +936,153 @@ mod tests {
                 .expect("prompt text should exist")
                 .contains("bind parameters")
         );
+    }
+
+    #[tokio::test]
+    async fn prompts_list_and_get_pin_prompt_wire_shape() {
+        let server = McpServer::new();
+        let list = server
+            .handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"prompts/list","params":{}}"#)
+            .await
+            .expect("prompts/list should receive a response");
+
+        let prompts = result(&list)["prompts"]
+            .as_array()
+            .expect("prompts should be an array");
+        let by_name = prompts
+            .iter()
+            .map(|prompt| {
+                assert_eq!(
+                    object_keys(prompt),
+                    BTreeSet::from(["arguments", "description", "name"])
+                );
+                (
+                    prompt["name"]
+                        .as_str()
+                        .expect("prompt name should be a string"),
+                    prompt,
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            by_name.keys().copied().collect::<Vec<_>>(),
+            vec![
+                "add-server-function",
+                "debug-hydration",
+                "review-axum-integration",
+                "review-sql-access",
+                "wire-leptos-axum-ssr",
+            ]
+        );
+
+        let sql_args = by_name["review-sql-access"]["arguments"]
+            .as_array()
+            .expect("prompt arguments should be an array");
+        assert_eq!(sql_args.len(), 2);
+        assert_eq!(sql_args[0]["name"], "code");
+        assert_eq!(sql_args[0]["required"], true);
+        assert_eq!(sql_args[1]["name"], "backend");
+        assert_eq!(sql_args[1]["required"], false);
+
+        let prompt = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":2,"method":"prompts/get","params":{"name":"review-sql-access","arguments":{"backend":"SQLite","code":"SELECT 1"}}}"#,
+            )
+            .await
+            .expect("prompts/get should receive a response");
+        let result = result(&prompt);
+        assert_eq!(
+            object_keys(result),
+            BTreeSet::from(["description", "messages"])
+        );
+        assert_eq!(
+            result["description"],
+            by_name["review-sql-access"]["description"]
+        );
+        let message = &result["messages"][0];
+        assert_eq!(object_keys(message), BTreeSet::from(["content", "role"]));
+        assert_eq!(message["role"], "user");
+        assert_eq!(
+            object_keys(&message["content"]),
+            BTreeSet::from(["text", "type"])
+        );
+        assert_eq!(message["content"]["type"], "text");
+        assert!(
+            message["content"]["text"]
+                .as_str()
+                .expect("prompt text should be a string")
+                .contains("SELECT 1")
+        );
+    }
+
+    #[tokio::test]
+    async fn notifications_ignore_success_and_non_invalid_request_errors() {
+        let server = McpServer::new();
+
+        assert!(
+            server
+                .handle_line(r#"{"jsonrpc":"2.0","method":"initialize","params":{}}"#)
+                .await
+                .is_none()
+        );
+        assert!(
+            server
+                .handle_line(r#"{"jsonrpc":"2.0","method":"unknown","params":{}}"#)
+                .await
+                .is_none()
+        );
+        assert!(
+            server
+                .handle_line(
+                    r#"{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get-documentation","arguments":{}}}"#,
+                )
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_request_notifications_still_return_errors() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(r#"{"jsonrpc":"1.0","method":"initialize","params":{}}"#)
+            .await
+            .expect("invalid request notifications should receive a response");
+
+        assert_eq!(response_id(&response), &Value::Null);
+        assert_eq!(error_code(&response), -32600);
+    }
+
+    #[tokio::test]
+    async fn json_rpc_error_codes_are_pinned_by_failure_class() {
+        let server = McpServer::new();
+        let cases = [
+            ("{bad json}", -32700),
+            (r#"{"jsonrpc":"1.0","id":1,"method":"initialize"}"#, -32600),
+            (
+                r#"{"jsonrpc":"2.0","id":1,"method":"missing/method"}"#,
+                -32601,
+            ),
+            (
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get-documentation","arguments":{}}}"#,
+                -32602,
+            ),
+        ];
+
+        for (line, expected_code) in cases {
+            let response = server
+                .handle_line(line)
+                .await
+                .expect("failure request should receive a response");
+            assert_eq!(error_code(&response), expected_code, "line: {line}");
+            assert!(response.result.is_none());
+        }
+
+        let internal = JsonRpcResponse::error(
+            Value::Null,
+            ProtocolError::InternalError("boom".to_string()),
+        );
+        assert_eq!(error_code(&internal), -32603);
     }
 
     #[tokio::test]
@@ -989,159 +1142,10 @@ mod tests {
     }
 
     #[test]
-    fn oversized_read_path_error_is_invalid_request_with_null_id() {
-        let input = format!(
-            r#"{{"jsonrpc":"2.0","id":"client-id","method":"tools/list","padding":"{}"}}
-"#,
-            "x".repeat(MAX_JSON_RPC_LINE_BYTES)
-        );
-        let mut reader = BufReader::new(input.as_bytes());
-        let line = read_limited_line(&mut reader, MAX_JSON_RPC_LINE_BYTES)
-            .expect("line reader should succeed")
-            .expect("line should be present");
-
-        match line {
-            LineRead::Line(_) => panic!("oversized read-path frame should be rejected"),
-            LineRead::Oversized => {}
-        }
-
+    fn oversized_line_error_response_is_invalid_request_with_null_id() {
         let response = oversized_line_error_response();
         assert_eq!(error_code(&response), -32600);
         assert_eq!(response_id(&response), &Value::Null);
-    }
-
-    #[test]
-    fn max_sized_stdin_line_with_newline_is_accepted() {
-        let input = format!("{}\n", "x".repeat(MAX_JSON_RPC_LINE_BYTES));
-        let mut reader = BufReader::new(input.as_bytes());
-        let line = read_limited_line(&mut reader, MAX_JSON_RPC_LINE_BYTES)
-            .expect("line reader should succeed")
-            .expect("line should be present");
-
-        match line {
-            LineRead::Line(line) => assert_eq!(line.len(), MAX_JSON_RPC_LINE_BYTES),
-            LineRead::Oversized => panic!("line at the exact limit should be accepted"),
-        }
-    }
-
-    #[test]
-    fn read_limited_line_returns_newline_terminated_frames_in_order() {
-        let mut reader = BufReader::new(b"abc\ndef\n".as_slice());
-
-        let first = read_limited_line(&mut reader, 10)
-            .expect("line reader should succeed")
-            .expect("first line should be present");
-        let second = read_limited_line(&mut reader, 10)
-            .expect("line reader should succeed")
-            .expect("second line should be present");
-
-        match first {
-            LineRead::Line(line) => assert_eq!(line, "abc"),
-            LineRead::Oversized => panic!("first line should fit"),
-        }
-        match second {
-            LineRead::Line(line) => assert_eq!(line, "def"),
-            LineRead::Oversized => panic!("second line should fit"),
-        }
-    }
-
-    #[test]
-    fn read_limited_line_returns_final_eof_frame_then_none() {
-        let mut reader = BufReader::new(b"abc".as_slice());
-
-        let line = read_limited_line(&mut reader, 10)
-            .expect("line reader should succeed")
-            .expect("line should be present");
-        let eof = read_limited_line(&mut reader, 10).expect("line reader should succeed");
-
-        match line {
-            LineRead::Line(line) => assert_eq!(line, "abc"),
-            LineRead::Oversized => panic!("line should fit"),
-        }
-        assert!(eof.is_none());
-    }
-
-    #[test]
-    fn exact_limit_stdin_line_without_newline_is_accepted_at_eof() {
-        let mut reader = BufReader::new(b"abc".as_slice());
-        let line = read_limited_line(&mut reader, 3)
-            .expect("line reader should succeed")
-            .expect("line should be present");
-
-        match line {
-            LineRead::Line(line) => assert_eq!(line, "abc"),
-            LineRead::Oversized => panic!("line at exact limit should be accepted"),
-        }
-    }
-
-    #[test]
-    fn limit_plus_one_line_with_newline_consumes_only_violation_byte() {
-        let input = b"abcd\nnext\n".to_vec();
-        let mut reader = InstrumentedReader::new(input, vec![10]);
-
-        let line = read_limited_line(&mut reader, 3)
-            .expect("line reader should succeed")
-            .expect("line should be present");
-
-        match line {
-            LineRead::Line(_) => panic!("limit-plus-one line should be rejected"),
-            LineRead::Oversized => {}
-        }
-        assert_eq!(reader.consume_calls, vec![4]);
-        assert_eq!(reader.position, 4);
-    }
-
-    #[test]
-    fn invalid_utf8_stdin_line_is_lossily_decoded() {
-        let mut reader = BufReader::new([0xff, b'\n'].as_slice());
-        let line = read_limited_line(&mut reader, 10)
-            .expect("line reader should succeed")
-            .expect("line should be present");
-
-        match line {
-            LineRead::Line(line) => assert_eq!(line, "�"),
-            LineRead::Oversized => panic!("invalid UTF-8 within the limit should be decoded"),
-        }
-    }
-
-    #[test]
-    fn oversized_unterminated_stdin_line_is_rejected() {
-        let input = "x".repeat(MAX_JSON_RPC_LINE_BYTES + 1);
-        let mut reader = BufReader::new(input.as_bytes());
-        let line = read_limited_line(&mut reader, MAX_JSON_RPC_LINE_BYTES)
-            .expect("line reader should succeed")
-            .expect("line should be present");
-
-        match line {
-            LineRead::Line(_) => panic!("unterminated oversized line should be rejected"),
-            LineRead::Oversized => {}
-        }
-    }
-
-    #[test]
-    fn read_limited_line_stops_at_hard_cap_without_discard() {
-        let input = vec![b'x'; MAX_JSON_RPC_LINE_BYTES + 1];
-        let mut reader = InstrumentedReader::new(input, vec![MAX_JSON_RPC_LINE_BYTES, 1]);
-
-        let line = read_limited_line(&mut reader, MAX_JSON_RPC_LINE_BYTES)
-            .expect("line reader should succeed")
-            .expect("line should be present");
-
-        match line {
-            LineRead::Line(_) => panic!("unterminated oversized line should be rejected"),
-            LineRead::Oversized => {}
-        }
-        assert_eq!(
-            reader.fill_buf_calls,
-            vec![(0, MAX_JSON_RPC_LINE_BYTES), (MAX_JSON_RPC_LINE_BYTES, 1)],
-            "reader should stop immediately after observing byte MAX_JSON_RPC_LINE_BYTES + 1"
-        );
-        assert_eq!(
-            reader.consume_calls,
-            vec![MAX_JSON_RPC_LINE_BYTES, 1],
-            "reader should consume only through the hard-cap violation byte"
-        );
-        assert_eq!(reader.position, MAX_JSON_RPC_LINE_BYTES + 1);
     }
 
     #[tokio::test]
