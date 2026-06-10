@@ -1,7 +1,7 @@
 //! MCP tool domain handlers.
 
 use crate::api::{self, ApiLookupError, ApiSymbol};
-use crate::diagnostics::{render_diagnostics, DiagnosticsOutput, LeptosDiagnostics};
+use crate::diagnostics::{DiagnosticsOutput, LeptosDiagnostics, render_diagnostics};
 use crate::docs::{
     self, CrateVersion, DocSection, SectionLookupError, SectionSearchMatch, SnippetClassification,
 };
@@ -355,14 +355,18 @@ mod tests {
 
         match output.structured {
             StructuredToolOutput::SearchDocs(search) => {
-                assert!(search
-                    .results
-                    .iter()
-                    .any(|result| result.section.id == "axum"));
-                assert!(search
-                    .results
-                    .iter()
-                    .any(|result| !result.next_actions.is_empty()));
+                assert!(
+                    search
+                        .results
+                        .iter()
+                        .any(|result| result.section.id == "axum")
+                );
+                assert!(
+                    search
+                        .results
+                        .iter()
+                        .any(|result| !result.next_actions.is_empty())
+                );
             }
             _ => panic!("expected search docs output"),
         }

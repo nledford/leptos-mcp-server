@@ -87,13 +87,11 @@ static PROMPTS: &[PromptTemplate] = &[
     PromptTemplate {
         name: "review-axum-integration",
         description: "Review Axum 0.8.9 routing, state, extractors, middleware, and response handling in a Leptos server.",
-        arguments: &[
-            PromptArgument {
-                name: "code",
-                description: "Axum or Leptos server code to review.",
-                required: true,
-            },
-        ],
+        arguments: &[PromptArgument {
+            name: "code",
+            description: "Axum or Leptos server code to review.",
+            required: true,
+        }],
         related_tools: &["lookup-api", "leptos-diagnostics", "search-docs"],
         related_sections: &["axum", "leptos-axum", "server-functions"],
         template: "Review this Axum 0.8.9 + Leptos integration code for routing, State/FromRef, middleware placement, IntoResponse errors, server function routes, extractor use, and SSR/static fallback ordering:\n\n{code}",

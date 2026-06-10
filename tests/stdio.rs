@@ -74,19 +74,25 @@ fn stdio_process_exposes_resources_prompts_and_new_tools() {
     assert!(output.status.success());
     let responses = stdout_json_lines(&output);
     assert_eq!(responses.len(), 3);
-    assert!(responses[0]["result"]["tools"]
-        .as_array()
-        .expect("tools should be listed")
-        .iter()
-        .any(|tool| tool["name"] == "lookup-api"));
-    assert!(responses[1]["result"]["resources"]
-        .as_array()
-        .expect("resources should be listed")
-        .iter()
-        .any(|resource| resource["uri"] == "leptos://docs/leptos-axum"));
-    assert!(responses[2]["result"]["prompts"]
-        .as_array()
-        .expect("prompts should be listed")
-        .iter()
-        .any(|prompt| prompt["name"] == "wire-leptos-axum-ssr"));
+    assert!(
+        responses[0]["result"]["tools"]
+            .as_array()
+            .expect("tools should be listed")
+            .iter()
+            .any(|tool| tool["name"] == "lookup-api")
+    );
+    assert!(
+        responses[1]["result"]["resources"]
+            .as_array()
+            .expect("resources should be listed")
+            .iter()
+            .any(|resource| resource["uri"] == "leptos://docs/leptos-axum")
+    );
+    assert!(
+        responses[2]["result"]["prompts"]
+            .as_array()
+            .expect("prompts should be listed")
+            .iter()
+            .any(|prompt| prompt["name"] == "wire-leptos-axum-ssr")
+    );
 }

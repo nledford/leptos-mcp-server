@@ -900,8 +900,10 @@ mod tests {
         let blocks = rust_code_blocks();
 
         assert!(!blocks.is_empty());
-        assert!(blocks
-            .iter()
-            .all(|block| block.classification != SnippetClassification::Ignore));
+        assert!(
+            blocks
+                .iter()
+                .all(|block| block.classification != SnippetClassification::Ignore)
+        );
     }
 }

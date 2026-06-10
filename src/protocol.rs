@@ -5,12 +5,12 @@
 use crate::docs;
 use crate::prompts;
 use crate::tools::{
-    LeptosTools, ToolError, GET_DOCUMENTATION_TOOL, LEPTOS_AXUM_RECIPE_TOOL,
-    LEPTOS_DIAGNOSTICS_TOOL, LIST_SECTIONS_TOOL, LOOKUP_API_TOOL, SEARCH_DOCS_TOOL,
+    GET_DOCUMENTATION_TOOL, LEPTOS_AXUM_RECIPE_TOOL, LEPTOS_DIAGNOSTICS_TOOL, LIST_SECTIONS_TOOL,
+    LOOKUP_API_TOOL, LeptosTools, SEARCH_DOCS_TOOL, ToolError,
 };
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Write};
 
@@ -832,11 +832,13 @@ mod tests {
             .await
             .expect("resources/list should receive a response");
 
-        assert!(result(&list)["resources"]
-            .as_array()
-            .expect("resources should be an array")
-            .iter()
-            .any(|resource| resource["uri"] == "leptos://docs/axum"));
+        assert!(
+            result(&list)["resources"]
+                .as_array()
+                .expect("resources should be an array")
+                .iter()
+                .any(|resource| resource["uri"] == "leptos://docs/axum")
+        );
 
         let read = server
             .handle_line(
@@ -845,10 +847,12 @@ mod tests {
             .await
             .expect("resources/read should receive a response");
 
-        assert!(result(&read)["contents"][0]["text"]
-            .as_str()
-            .expect("text content should exist")
-            .contains("Axum 0.8.9"));
+        assert!(
+            result(&read)["contents"][0]["text"]
+                .as_str()
+                .expect("text content should exist")
+                .contains("Axum 0.8.9")
+        );
     }
 
     #[tokio::test]
@@ -859,11 +863,13 @@ mod tests {
             .await
             .expect("prompts/list should receive a response");
 
-        assert!(result(&list)["prompts"]
-            .as_array()
-            .expect("prompts should be an array")
-            .iter()
-            .any(|prompt| prompt["name"] == "debug-hydration"));
+        assert!(
+            result(&list)["prompts"]
+                .as_array()
+                .expect("prompts should be an array")
+                .iter()
+                .any(|prompt| prompt["name"] == "debug-hydration")
+        );
 
         let prompt = server
             .handle_line(
@@ -872,10 +878,12 @@ mod tests {
             .await
             .expect("prompts/get should receive a response");
 
-        assert!(result(&prompt)["messages"][0]["content"]["text"]
-            .as_str()
-            .expect("prompt text should exist")
-            .contains("WASM 404"));
+        assert!(
+            result(&prompt)["messages"][0]["content"]["text"]
+                .as_str()
+                .expect("prompt text should exist")
+                .contains("WASM 404")
+        );
     }
 
     #[tokio::test]
@@ -941,10 +949,14 @@ mod tests {
 
         let structured = &result(&response)["structuredContent"];
         assert_eq!(structured["kind"], "diagnostics");
-        assert!(structured["diagnostics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|diagnostic| { diagnostic["rule_id"] == "leptos.missing-component-attribute" }));
+        assert!(
+            structured["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|diagnostic| {
+                    diagnostic["rule_id"] == "leptos.missing-component-attribute"
+                })
+        );
     }
 }

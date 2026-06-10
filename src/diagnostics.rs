@@ -666,10 +666,12 @@ mod tests {
             "#,
         );
 
-        assert!(output
-            .diagnostics
-            .iter()
-            .any(|d| d.rule_id == "leptos.signal-get-in-view"));
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|d| d.rule_id == "leptos.signal-get-in-view")
+        );
     }
 
     #[test]
@@ -695,10 +697,12 @@ mod tests {
             "#,
         );
 
-        assert!(!output
-            .diagnostics
-            .iter()
-            .any(|d| d.rule_id == "leptos.missing-component-attribute"));
+        assert!(
+            !output
+                .diagnostics
+                .iter()
+                .any(|d| d.rule_id == "leptos.missing-component-attribute")
+        );
     }
 
     #[test]
@@ -711,10 +715,12 @@ mod tests {
             "#,
         );
 
-        assert!(!output
-            .diagnostics
-            .iter()
-            .any(|d| d.rule_id == "leptos.missing-component-attribute"));
+        assert!(
+            !output
+                .diagnostics
+                .iter()
+                .any(|d| d.rule_id == "leptos.missing-component-attribute")
+        );
     }
 
     #[test]
@@ -728,14 +734,18 @@ mod tests {
             "#,
         );
 
-        assert!(output
-            .diagnostics
-            .iter()
-            .any(|d| d.rule_id == "leptos.server-fn-async"));
-        assert!(output
-            .diagnostics
-            .iter()
-            .any(|d| d.rule_id == "leptos.server-fn-generic"));
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|d| d.rule_id == "leptos.server-fn-async")
+        );
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|d| d.rule_id == "leptos.server-fn-generic")
+        );
     }
 
     #[test]
@@ -750,14 +760,18 @@ mod tests {
             "#,
         );
 
-        assert!(output
-            .diagnostics
-            .iter()
-            .any(|d| d.rule_id == "leptos.server-fn-prefix"));
-        assert!(output
-            .diagnostics
-            .iter()
-            .any(|d| d.rule_id == "leptos.server-fn-duplicate-path"));
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|d| d.rule_id == "leptos.server-fn-prefix")
+        );
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|d| d.rule_id == "leptos.server-fn-duplicate-path")
+        );
     }
 
     #[test]
@@ -775,13 +789,17 @@ mod tests {
             "#,
         );
 
-        assert!(output
-            .diagnostics
-            .iter()
-            .any(|d| d.rule_id == "leptos-axum.extract-state"));
-        assert!(output
-            .diagnostics
-            .iter()
-            .any(|d| d.rule_id == "leptos-axum.extract-body"));
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|d| d.rule_id == "leptos-axum.extract-state")
+        );
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|d| d.rule_id == "leptos-axum.extract-body")
+        );
     }
 }

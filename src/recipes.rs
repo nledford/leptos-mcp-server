@@ -140,7 +140,10 @@ let app = Router::new()
         aliases: &["custom axum handler", "excluded route", "api handler"],
         crates: &["leptos_axum 0.8.9", "axum 0.8.9"],
         related_sections: &["leptos-axum", "axum", "routing"],
-        related_apis: &["leptos_axum::generate_route_list_with_exclusions", "axum::Router"],
+        related_apis: &[
+            "leptos_axum::generate_route_list_with_exclusions",
+            "axum::Router",
+        ],
         steps: &[
             "List the Axum-owned paths in Axum path format.",
             "Generate Leptos routes with exclusions.",
