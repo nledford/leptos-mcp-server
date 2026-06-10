@@ -248,6 +248,12 @@ cargo audit
 cargo deny check
 ```
 
+## Releases
+
+Release automation uses Semantic Versioning, Conventional Commits, `release-plz`,
+and `vX.Y.Z` Git tags. See [docs/releasing.md](docs/releasing.md) for the
+maintainer process, GitHub settings, and publishing status.
+
 ## Protocol
 
 This server implements MCP over stdio using newline-delimited JSON-RPC 2.0.

@@ -1,0 +1,16 @@
+[workspace]
+# This crate is not published to crates.io yet. Use git tags as the release
+# source of truth and skip cargo publishing while still updating Cargo metadata,
+# CHANGELOG.md, git tags, and GitHub Releases.
+git_only = true
+release_always = false
+changelog_update = true
+git_tag_enable = false
+git_release_enable = false
+
+[[package]]
+name = "leptos-mcp-server"
+changelog_path = "CHANGELOG.md"
+git_tag_name = "v{{ version }}"
+git_tag_enable = true
+git_release_enable = true
