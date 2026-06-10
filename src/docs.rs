@@ -1,6 +1,9 @@
 //! Leptos documentation catalog.
 
-use crate::api::{AXUM_VERSION, LEPTOS_AXUM_VERSION, LEPTOS_VERSION};
+use crate::api::{
+    AXUM_DOCS_URL, AXUM_VERSION, LEPTOS_AXUM_DOCS_URL, LEPTOS_AXUM_VERSION, LEPTOS_DOCS_URL,
+    LEPTOS_VERSION,
+};
 use serde::Serialize;
 
 const LEPTOS_VERSION_SCOPE: &str = "Leptos 0.8+";
@@ -34,6 +37,50 @@ pub struct SectionMetadata {
     pub common_errors: &'static [&'static str],
     pub related_sections: &'static [&'static str],
     pub snippet_classification: SnippetClassification,
+}
+
+/// Single-row documentation catalog model.
+///
+/// The catalog row is the chosen source for section summary generation: it pairs
+/// each `DocSection` with its `SectionMetadata` up front, so callers can render
+/// normal summaries by iterating `list_catalog_sections()` instead of joining a
+/// section id back to `SECTION_METADATA`. The legacy section and metadata slices
+/// remain during the migration for existing accessors; Task 3 can derive those
+/// accessors from this paired catalog surface without changing public ids or
+/// resource URIs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CatalogSection {
+    pub section: &'static DocSection,
+    pub metadata: &'static SectionMetadata,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SectionList;
+
+impl SectionList {
+    pub fn iter(self) -> impl Iterator<Item = &'static DocSection> {
+        list_catalog_sections().iter().map(catalog_section_doc)
+    }
+
+    pub fn len(self) -> usize {
+        list_catalog_sections().len()
+    }
+
+    pub fn is_empty(self) -> bool {
+        list_catalog_sections().is_empty()
+    }
+}
+
+impl IntoIterator for SectionList {
+    type Item = &'static DocSection;
+    type IntoIter = std::iter::Map<
+        std::slice::Iter<'static, CatalogSection>,
+        fn(&'static CatalogSection) -> &'static DocSection,
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        list_catalog_sections().iter().map(catalog_section_doc)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -260,24 +307,24 @@ static SECTIONS: &[DocSection] = &[
 static LEPTOS_CRATE: &[CrateVersion] = &[CrateVersion {
     name: "leptos",
     version: LEPTOS_VERSION,
-    docs_url: "https://docs.rs/leptos/latest/leptos/",
+    docs_url: LEPTOS_DOCS_URL,
 }];
 
 static LEPTOS_AXUM_CRATES: &[CrateVersion] = &[
     CrateVersion {
         name: "leptos",
         version: LEPTOS_VERSION,
-        docs_url: "https://docs.rs/leptos/latest/leptos/",
+        docs_url: LEPTOS_DOCS_URL,
     },
     CrateVersion {
         name: "leptos_axum",
         version: LEPTOS_AXUM_VERSION,
-        docs_url: "https://docs.rs/leptos_axum/latest/leptos_axum/",
+        docs_url: LEPTOS_AXUM_DOCS_URL,
     },
     CrateVersion {
         name: "axum",
         version: AXUM_VERSION,
-        docs_url: "https://docs.rs/axum/0.8.9/axum/",
+        docs_url: AXUM_DOCS_URL,
     },
 ];
 
@@ -285,17 +332,17 @@ static SQL_GUIDANCE_CRATES: &[CrateVersion] = &[
     CrateVersion {
         name: "leptos",
         version: LEPTOS_VERSION,
-        docs_url: "https://docs.rs/leptos/latest/leptos/",
+        docs_url: LEPTOS_DOCS_URL,
     },
     CrateVersion {
         name: "leptos_axum",
         version: LEPTOS_AXUM_VERSION,
-        docs_url: "https://docs.rs/leptos_axum/latest/leptos_axum/",
+        docs_url: LEPTOS_AXUM_DOCS_URL,
     },
     CrateVersion {
         name: "axum",
         version: AXUM_VERSION,
-        docs_url: "https://docs.rs/axum/0.8.9/axum/",
+        docs_url: AXUM_DOCS_URL,
     },
     CrateVersion {
         name: "sqlx",
@@ -318,7 +365,7 @@ static SECTION_METADATA: &[SectionMetadata] = &[
     SectionMetadata {
         id: "getting-started",
         crate_versions: LEPTOS_CRATE,
-        source_url: "https://docs.rs/leptos/latest/leptos/",
+        source_url: LEPTOS_DOCS_URL,
         task_tags: &["project-setup", "cargo-leptos", "hello-world"],
         crate_apis: &["leptos::prelude::*", "view!"],
         prerequisites: &[
@@ -525,7 +572,7 @@ static SECTION_METADATA: &[SectionMetadata] = &[
     SectionMetadata {
         id: "leptos-axum",
         crate_versions: SQL_GUIDANCE_CRATES,
-        source_url: "https://docs.rs/leptos_axum/latest/leptos_axum/",
+        source_url: LEPTOS_AXUM_DOCS_URL,
         task_tags: &[
             "leptos_axum",
             "ssr",
@@ -567,7 +614,7 @@ static SECTION_METADATA: &[SectionMetadata] = &[
     SectionMetadata {
         id: "axum",
         crate_versions: SQL_GUIDANCE_CRATES,
-        source_url: "https://docs.rs/axum/0.8.9/axum/",
+        source_url: AXUM_DOCS_URL,
         task_tags: &[
             "axum-0.8.9",
             "Router",
@@ -605,7 +652,7 @@ static SECTION_METADATA: &[SectionMetadata] = &[
     SectionMetadata {
         id: "ssr-hydration-deployment",
         crate_versions: LEPTOS_AXUM_CRATES,
-        source_url: "https://docs.rs/leptos/latest/leptos/",
+        source_url: LEPTOS_DOCS_URL,
         task_tags: &[
             "ssr",
             "hydrate",
@@ -625,14 +672,78 @@ static SECTION_METADATA: &[SectionMetadata] = &[
     },
 ];
 
-pub fn list_sections() -> &'static [DocSection] {
-    SECTIONS
+static CATALOG_SECTIONS: &[CatalogSection] = &[
+    CatalogSection {
+        section: &SECTIONS[0],
+        metadata: &SECTION_METADATA[0],
+    },
+    CatalogSection {
+        section: &SECTIONS[1],
+        metadata: &SECTION_METADATA[1],
+    },
+    CatalogSection {
+        section: &SECTIONS[2],
+        metadata: &SECTION_METADATA[2],
+    },
+    CatalogSection {
+        section: &SECTIONS[3],
+        metadata: &SECTION_METADATA[3],
+    },
+    CatalogSection {
+        section: &SECTIONS[4],
+        metadata: &SECTION_METADATA[4],
+    },
+    CatalogSection {
+        section: &SECTIONS[5],
+        metadata: &SECTION_METADATA[5],
+    },
+    CatalogSection {
+        section: &SECTIONS[6],
+        metadata: &SECTION_METADATA[6],
+    },
+    CatalogSection {
+        section: &SECTIONS[7],
+        metadata: &SECTION_METADATA[7],
+    },
+    CatalogSection {
+        section: &SECTIONS[8],
+        metadata: &SECTION_METADATA[8],
+    },
+    CatalogSection {
+        section: &SECTIONS[9],
+        metadata: &SECTION_METADATA[9],
+    },
+    CatalogSection {
+        section: &SECTIONS[10],
+        metadata: &SECTION_METADATA[10],
+    },
+    CatalogSection {
+        section: &SECTIONS[11],
+        metadata: &SECTION_METADATA[11],
+    },
+    CatalogSection {
+        section: &SECTIONS[12],
+        metadata: &SECTION_METADATA[12],
+    },
+    CatalogSection {
+        section: &SECTIONS[13],
+        metadata: &SECTION_METADATA[13],
+    },
+];
+
+pub fn list_sections() -> SectionList {
+    SectionList
+}
+
+pub fn list_catalog_sections() -> &'static [CatalogSection] {
+    CATALOG_SECTIONS
 }
 
 pub fn get_metadata(section_id: &str) -> Option<&'static SectionMetadata> {
-    SECTION_METADATA
+    CATALOG_SECTIONS
         .iter()
-        .find(|metadata| metadata.id == section_id)
+        .find(|catalog_section| catalog_section.section.id == section_id)
+        .map(|catalog_section| catalog_section.metadata)
 }
 
 pub fn resource_uri(section: &DocSection) -> String {
@@ -640,28 +751,38 @@ pub fn resource_uri(section: &DocSection) -> String {
 }
 
 pub fn get_section_by_resource_uri(uri: &str) -> Result<&'static DocSection, SectionLookupError> {
+    get_catalog_section_by_resource_uri(uri).map(|catalog_section| catalog_section.section)
+}
+
+pub fn get_catalog_section_by_resource_uri(
+    uri: &str,
+) -> Result<&'static CatalogSection, SectionLookupError> {
     let section_id =
         uri.strip_prefix(DOC_RESOURCE_PREFIX)
             .ok_or_else(|| SectionLookupError::Unknown {
                 query: uri.to_string(),
             })?;
 
-    get_section(section_id)
+    get_catalog_section(section_id)
 }
 
 pub fn get_section(query: &str) -> Result<&'static DocSection, SectionLookupError> {
+    get_catalog_section(query).map(|catalog_section| catalog_section.section)
+}
+
+pub fn get_catalog_section(query: &str) -> Result<&'static CatalogSection, SectionLookupError> {
     let normalized = normalize(query);
     if normalized.is_empty() {
         return Err(SectionLookupError::Empty);
     }
 
-    let matches: Vec<&DocSection> = SECTIONS
+    let matches: Vec<&CatalogSection> = CATALOG_SECTIONS
         .iter()
-        .filter(|section| section.matches(&normalized))
+        .filter(|catalog_section| catalog_section.section.matches(&normalized))
         .collect();
 
     match matches.as_slice() {
-        [section] => Ok(*section),
+        [catalog_section] => Ok(*catalog_section),
         [] => Err(SectionLookupError::Unknown {
             query: query.to_string(),
         }),
@@ -669,7 +790,7 @@ pub fn get_section(query: &str) -> Result<&'static DocSection, SectionLookupErro
             query: query.to_string(),
             matches: multiple
                 .iter()
-                .map(|section| section.id.to_string())
+                .map(|catalog_section| catalog_section.section.id.to_string())
                 .collect(),
         }),
     }
@@ -681,10 +802,11 @@ pub fn search_sections(query: &str) -> Result<Vec<SectionSearchMatch>, SectionLo
         return Err(SectionLookupError::Empty);
     }
 
-    let mut matches: Vec<SectionSearchMatch> = SECTIONS
+    let mut matches: Vec<SectionSearchMatch> = CATALOG_SECTIONS
         .iter()
-        .filter_map(|section| {
-            let metadata = get_metadata(section.id)?;
+        .filter_map(|catalog_section| {
+            let section = catalog_section.section;
+            let metadata = catalog_section.metadata;
             let mut score = 0;
             let mut matched_fields = Vec::new();
 
@@ -763,10 +885,9 @@ pub fn search_sections(query: &str) -> Result<Vec<SectionSearchMatch>, SectionLo
 pub fn rust_code_blocks() -> Vec<RustCodeBlock> {
     let mut blocks = Vec::new();
 
-    for section in SECTIONS {
-        let classification = get_metadata(section.id)
-            .map(|metadata| metadata.snippet_classification)
-            .unwrap_or(SnippetClassification::Ignore);
+    for catalog_section in CATALOG_SECTIONS {
+        let section = catalog_section.section;
+        let classification = catalog_section.metadata.snippet_classification;
         let mut in_rust_block = false;
         let mut current = Vec::new();
 
@@ -854,6 +975,10 @@ fn push_unique(values: &mut Vec<&'static str>, value: &'static str) {
     }
 }
 
+fn catalog_section_doc(catalog_section: &'static CatalogSection) -> &'static DocSection {
+    catalog_section.section
+}
+
 fn next_actions_for(section_id: &str) -> Vec<&'static str> {
     match section_id {
         "leptos-axum" => vec![
@@ -879,7 +1004,9 @@ fn next_actions_for(section_id: &str) -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
+
+    const ALLOWED_SELF_RELATED_SECTIONS: &[&str] = &[];
 
     #[test]
     fn resolves_canonical_section_id() {
@@ -928,12 +1055,52 @@ mod tests {
     }
 
     #[test]
+    fn normalized_lookup_terms_do_not_collide_across_sections() {
+        let mut lookup_terms: HashMap<String, &str> = HashMap::new();
+
+        for section in list_sections() {
+            let terms = [section.id, section.path, section.title]
+                .into_iter()
+                .chain(section.aliases.iter().copied());
+
+            for term in terms {
+                let normalized = normalize(term);
+                if let Some(existing_section_id) =
+                    lookup_terms.insert(normalized.clone(), section.id)
+                {
+                    assert_eq!(
+                        existing_section_id, section.id,
+                        "normalized lookup term '{normalized}' is used by both '{existing_section_id}' and '{}'",
+                        section.id
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn sections_have_provenance_metadata() {
         for section in list_sections() {
-            assert!(!section.leptos_version.is_empty());
-            assert!(!section.source.is_empty());
-            assert!(!section.source_path.is_empty());
-            assert!(!section.reviewed_at.is_empty());
+            assert!(
+                !section.leptos_version.is_empty(),
+                "section '{}' has empty leptos_version",
+                section.id
+            );
+            assert!(
+                !section.source.is_empty(),
+                "section '{}' has empty source",
+                section.id
+            );
+            assert!(
+                !section.source_path.is_empty(),
+                "section '{}' has empty source_path",
+                section.id
+            );
+            assert!(
+                !section.reviewed_at.is_empty(),
+                "section '{}' has empty reviewed_at",
+                section.id
+            );
         }
     }
 
@@ -962,21 +1129,190 @@ mod tests {
     #[test]
     fn every_section_has_extended_metadata() {
         let section_ids: HashSet<&str> = list_sections().iter().map(|section| section.id).collect();
-        let metadata_ids: HashSet<&str> = SECTION_METADATA
-            .iter()
-            .map(|metadata| metadata.id)
-            .collect();
+        let mut metadata_ids = HashSet::new();
 
-        assert_eq!(section_ids, metadata_ids);
         for metadata in SECTION_METADATA {
-            assert!(!metadata.crate_versions.is_empty());
-            assert!(!metadata.source_url.is_empty());
-            assert!(!metadata.task_tags.is_empty());
-            assert!(!metadata.related_sections.is_empty());
+            assert!(
+                metadata_ids.insert(metadata.id),
+                "duplicate metadata record for section '{}'",
+                metadata.id
+            );
+            assert!(
+                section_ids.contains(metadata.id),
+                "orphan metadata record for unknown section '{}'",
+                metadata.id
+            );
+        }
+
+        for section_id in &section_ids {
+            assert!(
+                metadata_ids.contains(section_id),
+                "missing metadata record for section '{section_id}'"
+            );
+        }
+
+        assert_eq!(
+            SECTION_METADATA.len(),
+            list_sections().len(),
+            "expected exactly one metadata record per section"
+        );
+        for metadata in SECTION_METADATA {
+            assert!(
+                !metadata.crate_versions.is_empty(),
+                "metadata for '{}' has no crate versions",
+                metadata.id
+            );
+            assert!(
+                !metadata.source_url.is_empty(),
+                "metadata for '{}' has empty source_url",
+                metadata.id
+            );
+            assert!(
+                !metadata.task_tags.is_empty(),
+                "metadata for '{}' has no task tags",
+                metadata.id
+            );
+            assert!(
+                !metadata.related_sections.is_empty(),
+                "metadata for '{}' has no related sections",
+                metadata.id
+            );
+        }
+    }
+
+    #[test]
+    fn related_sections_reference_known_non_self_sections() {
+        let section_ids: HashSet<&str> = list_sections().iter().map(|section| section.id).collect();
+        let allowed_self_relations: HashSet<&str> =
+            ALLOWED_SELF_RELATED_SECTIONS.iter().copied().collect();
+        let mut known_section_ids: Vec<&str> = section_ids.iter().copied().collect();
+        known_section_ids.sort_unstable();
+
+        let mut failures = Vec::new();
+
+        for metadata in SECTION_METADATA {
             for related in metadata.related_sections {
+                if !section_ids.contains(related) {
+                    failures.push(format!(
+                        "metadata for '{}' has related_sections entry '{}' but no section with that id exists; add the missing section or use one of: {}",
+                        metadata.id,
+                        related,
+                        known_section_ids.join(", ")
+                    ));
+                }
+
+                if *related == metadata.id && !allowed_self_relations.contains(metadata.id) {
+                    failures.push(format!(
+                        "metadata for '{}' relates to itself via related_sections; remove '{}' or add it to ALLOWED_SELF_RELATED_SECTIONS with an explicit rationale",
+                        metadata.id,
+                        related
+                    ));
+                }
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "invalid related_sections entries:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    #[test]
+    fn catalog_sections_pair_sections_with_metadata_for_summary_generation() {
+        assert_eq!(
+            list_catalog_sections().len(),
+            list_sections().len(),
+            "catalog rows should cover every section"
+        );
+
+        for catalog_section in list_catalog_sections() {
+            assert_eq!(
+                catalog_section.section.id, catalog_section.metadata.id,
+                "catalog row must pair section '{}' with its own metadata",
+                catalog_section.section.id
+            );
+            assert!(
+                !catalog_section.metadata.task_tags.is_empty(),
+                "catalog row for '{}' should expose summary metadata without an id join",
+                catalog_section.section.id
+            );
+        }
+    }
+
+    #[test]
+    fn metadata_crate_versions_have_source_fields() {
+        for metadata in SECTION_METADATA {
+            for crate_version in metadata.crate_versions {
                 assert!(
-                    section_ids.contains(related),
-                    "unknown related section {related}"
+                    !crate_version.name.is_empty(),
+                    "metadata for '{}' has crate version with empty name",
+                    metadata.id
+                );
+                assert!(
+                    !crate_version.version.is_empty(),
+                    "metadata for '{}' has crate '{}' with empty version",
+                    metadata.id,
+                    crate_version.name
+                );
+                assert!(
+                    !crate_version.docs_url.is_empty(),
+                    "metadata for '{}' has crate '{}' with empty docs_url",
+                    metadata.id,
+                    crate_version.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn metadata_versions_match_api_symbol_versions_for_shared_crates() {
+        let expected_docs_urls: HashMap<&str, &str> = HashMap::from([
+            ("leptos", LEPTOS_DOCS_URL),
+            ("leptos_axum", LEPTOS_AXUM_DOCS_URL),
+            ("axum", AXUM_DOCS_URL),
+        ]);
+
+        let mut api_versions_by_crate: HashMap<&str, HashSet<&str>> = HashMap::new();
+        for symbol in crate::api::all_symbols() {
+            if expected_docs_urls.contains_key(symbol.crate_name) {
+                api_versions_by_crate
+                    .entry(symbol.crate_name)
+                    .or_default()
+                    .insert(symbol.version);
+            }
+        }
+
+        for (crate_name, versions) in &api_versions_by_crate {
+            assert_eq!(
+                versions.len(),
+                1,
+                "API symbols for crate '{crate_name}' should share one owned version"
+            );
+        }
+
+        for metadata in SECTION_METADATA {
+            for crate_version in metadata.crate_versions {
+                let Some(expected_docs_url) = expected_docs_urls.get(crate_version.name) else {
+                    continue;
+                };
+                let api_versions = api_versions_by_crate
+                    .get(crate_version.name)
+                    .expect("shared crate should have API symbols");
+                let api_version = api_versions
+                    .iter()
+                    .next()
+                    .expect("shared crate should have API symbol version");
+
+                assert_eq!(
+                    crate_version.version, *api_version,
+                    "metadata for section '{}' has crate '{}' version that drifts from API symbols",
+                    metadata.id, crate_version.name
+                );
+                assert_eq!(
+                    crate_version.docs_url, *expected_docs_url,
+                    "metadata for section '{}' has crate '{}' docs_url that drifts from owned source URL",
+                    metadata.id, crate_version.name
                 );
             }
         }
@@ -1026,6 +1362,27 @@ mod tests {
             get_section_by_resource_uri("leptos://docs/axum").expect("resource URI should resolve");
 
         assert_eq!(section.id, "axum");
+    }
+
+    #[test]
+    fn resource_uris_round_trip_for_all_sections() {
+        for section in list_sections() {
+            let uri = resource_uri(section);
+            assert_eq!(
+                uri,
+                format!("{DOC_RESOURCE_PREFIX}{}", section.id),
+                "resource URI for '{}' should use canonical section id",
+                section.id
+            );
+
+            let resolved = get_section_by_resource_uri(&uri)
+                .unwrap_or_else(|_| panic!("resource URI '{uri}' should resolve"));
+            assert_eq!(
+                resolved.id, section.id,
+                "resource URI '{uri}' resolved to '{}' instead of '{}'",
+                resolved.id, section.id
+            );
+        }
     }
 
     #[test]

@@ -319,9 +319,11 @@ impl McpServer {
         })?;
         let params: ResourceReadParams = serde_json::from_value(params)
             .map_err(|error| ProtocolError::InvalidParams(error.to_string()))?;
-        let section = docs::get_section_by_resource_uri(&params.uri).map_err(|error| {
-            ProtocolError::InvalidParams(ToolError::DocumentationLookup(error).message())
-        })?;
+        let catalog_section =
+            docs::get_catalog_section_by_resource_uri(&params.uri).map_err(|error| {
+                ProtocolError::InvalidParams(ToolError::DocumentationLookup(error).message())
+            })?;
+        let section = catalog_section.section;
 
         Ok(json!({
             "contents": [

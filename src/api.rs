@@ -5,6 +5,9 @@ use serde::Serialize;
 pub const LEPTOS_VERSION: &str = "0.8.19";
 pub const LEPTOS_AXUM_VERSION: &str = "0.8.9";
 pub const AXUM_VERSION: &str = "0.8.9";
+pub const LEPTOS_DOCS_URL: &str = "https://docs.rs/leptos/latest/leptos/";
+pub const LEPTOS_AXUM_DOCS_URL: &str = "https://docs.rs/leptos_axum/latest/leptos_axum/";
+pub const AXUM_DOCS_URL: &str = "https://docs.rs/axum/0.8.9/axum/";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ApiSymbol {
@@ -363,5 +366,24 @@ mod tests {
         let error = lookup_symbol(" ", None).expect_err("empty query should fail");
 
         assert_eq!(error, ApiLookupError::Empty);
+    }
+
+    #[test]
+    fn api_symbol_urls_use_owned_docs_urls_for_shared_crates() {
+        for symbol in all_symbols() {
+            let expected_docs_url = match symbol.crate_name {
+                "leptos" => LEPTOS_DOCS_URL,
+                "leptos_axum" => LEPTOS_AXUM_DOCS_URL,
+                "axum" => AXUM_DOCS_URL,
+                other => panic!("unexpected curated crate '{other}'"),
+            };
+
+            assert!(
+                symbol.url.starts_with(expected_docs_url),
+                "API symbol '{}' URL should be under owned docs URL for crate '{}'",
+                symbol.name,
+                symbol.crate_name
+            );
+        }
     }
 }

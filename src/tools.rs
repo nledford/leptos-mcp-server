@@ -3,7 +3,8 @@
 use crate::api::{self, ApiLookupError, ApiSymbol};
 use crate::diagnostics::{DiagnosticsOutput, LeptosDiagnostics, render_diagnostics};
 use crate::docs::{
-    self, CrateVersion, DocSection, SectionLookupError, SectionSearchMatch, SnippetClassification,
+    self, CatalogSection, CrateVersion, SectionLookupError, SectionSearchMatch,
+    SnippetClassification,
 };
 use crate::recipes::{self, Recipe, RecipeLookupError};
 use serde::Serialize;
@@ -110,7 +111,10 @@ impl LeptosTools {
 
     pub fn list_sections(&self) -> ToolOutput {
         let output = ListSectionsOutput {
-            sections: docs::list_sections().iter().map(section_summary).collect(),
+            sections: docs::list_catalog_sections()
+                .iter()
+                .map(section_summary)
+                .collect(),
         };
         let text = output
             .sections
@@ -134,9 +138,11 @@ impl LeptosTools {
     }
 
     pub fn get_documentation(&self, section: &str) -> Result<ToolOutput, ToolError> {
-        let doc = docs::get_section(section).map_err(ToolError::DocumentationLookup)?;
+        let catalog_section =
+            docs::get_catalog_section(section).map_err(ToolError::DocumentationLookup)?;
+        let doc = catalog_section.section;
         let output = DocumentationOutput {
-            section: section_summary(doc),
+            section: section_summary(catalog_section),
             content: doc.content,
         };
 
@@ -231,9 +237,9 @@ impl Default for LeptosTools {
     }
 }
 
-fn section_summary(section: &DocSection) -> SectionSummary {
-    let metadata = docs::get_metadata(section.id)
-        .unwrap_or_else(|| panic!("missing metadata for section {}", section.id));
+fn section_summary(catalog_section: &CatalogSection) -> SectionSummary {
+    let section = catalog_section.section;
+    let metadata = catalog_section.metadata;
 
     SectionSummary {
         id: section.id,
@@ -259,7 +265,10 @@ fn section_summary(section: &DocSection) -> SectionSummary {
 
 fn section_search_summary(search_match: &SectionSearchMatch) -> SectionSearchSummary {
     SectionSearchSummary {
-        section: section_summary(search_match.section),
+        section: section_summary(&CatalogSection {
+            section: search_match.section,
+            metadata: search_match.metadata,
+        }),
         score: search_match.score,
         matched_fields: search_match.matched_fields.clone(),
         why: search_match.why.clone(),
