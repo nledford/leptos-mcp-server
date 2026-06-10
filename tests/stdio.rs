@@ -61,3 +61,32 @@ fn stdio_process_returns_parse_errors_as_json() {
     assert_eq!(responses.len(), 1);
     assert_eq!(responses[0]["error"]["code"], -32700);
 }
+
+#[test]
+fn stdio_process_exposes_resources_prompts_and_new_tools() {
+    let output = run_server(
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":2,"method":"resources/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"prompts/list","params":{}}
+"#,
+    );
+
+    assert!(output.status.success());
+    let responses = stdout_json_lines(&output);
+    assert_eq!(responses.len(), 3);
+    assert!(responses[0]["result"]["tools"]
+        .as_array()
+        .expect("tools should be listed")
+        .iter()
+        .any(|tool| tool["name"] == "lookup-api"));
+    assert!(responses[1]["result"]["resources"]
+        .as_array()
+        .expect("resources should be listed")
+        .iter()
+        .any(|resource| resource["uri"] == "leptos://docs/leptos-axum"));
+    assert!(responses[2]["result"]["prompts"]
+        .as_array()
+        .expect("prompts should be listed")
+        .iter()
+        .any(|prompt| prompt["name"] == "wire-leptos-axum-ssr"));
+}
