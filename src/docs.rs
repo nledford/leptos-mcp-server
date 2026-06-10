@@ -21,8 +21,29 @@ pub struct CrateVersion {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SnippetClassification {
+    /// A Rust snippet intended to be compiled by an automated harness as-is or
+    /// with only the standard repository-provided wrapper/import prelude.
+    ///
+    /// Use this only when the snippet is complete enough to type-check without
+    /// application-specific state, routes, database schemas, generated files,
+    /// feature flags, or omitted surrounding functions. If a snippet needs a
+    /// custom wrapper, add that wrapper to the harness before promoting it.
     CompileCandidate,
+    /// A Rust snippet intended to teach an API or pattern but not to compile on
+    /// its own in this repository.
+    ///
+    /// Use this for fragments, excerpts, pseudo-application code, examples that
+    /// omit surrounding components/functions/imports, and examples that depend
+    /// on user project state such as database pools, route trees, or schemas.
+    /// This is the default classification until a compile harness exists.
     Illustrative,
+    /// A fenced Rust block that should be excluded from snippet inventory and
+    /// compile checks.
+    ///
+    /// Use this only for non-example Rust-like text, intentionally invalid code,
+    /// expected compiler diagnostics, or placeholders where treating the block as
+    /// a snippet would mislead contributors. Prefer `Illustrative` for real
+    /// fragments that still communicate useful application code.
     Ignore,
 }
 
@@ -668,7 +689,7 @@ static SECTION_METADATA: &[SectionMetadata] = &[
             "Hydration mismatch from environment-specific rendering",
         ],
         related_sections: &["leptos-axum", "resources", "suspense", "routing"],
-        snippet_classification: SnippetClassification::Illustrative,
+        snippet_classification: SnippetClassification::CompileCandidate,
     },
 ];
 
@@ -1394,6 +1415,65 @@ mod tests {
             blocks
                 .iter()
                 .all(|block| block.classification != SnippetClassification::Ignore)
+        );
+    }
+
+    #[test]
+    fn rust_snippet_inventory_exposes_current_classifications() {
+        let blocks = rust_code_blocks();
+
+        let mut inventory: HashMap<&str, (SnippetClassification, usize)> = HashMap::new();
+        for block in &blocks {
+            let entry = inventory
+                .entry(block.section_id)
+                .or_insert((block.classification, 0));
+            assert_eq!(
+                entry.0, block.classification,
+                "section '{}' should have one snippet classification",
+                block.section_id
+            );
+            entry.1 += 1;
+        }
+
+        assert_eq!(
+            inventory,
+            HashMap::from([
+                ("getting-started", (SnippetClassification::Illustrative, 1)),
+                ("components", (SnippetClassification::Illustrative, 4)),
+                ("signals", (SnippetClassification::Illustrative, 10)),
+                ("views", (SnippetClassification::Illustrative, 9)),
+                ("resources", (SnippetClassification::Illustrative, 10)),
+                ("actions", (SnippetClassification::Illustrative, 9)),
+                (
+                    "server-functions",
+                    (SnippetClassification::Illustrative, 11),
+                ),
+                ("routing", (SnippetClassification::Illustrative, 8)),
+                ("forms", (SnippetClassification::Illustrative, 4)),
+                ("suspense", (SnippetClassification::Illustrative, 6)),
+                ("error-handling", (SnippetClassification::Illustrative, 5)),
+                ("leptos-axum", (SnippetClassification::Illustrative, 6)),
+                ("axum", (SnippetClassification::Illustrative, 5)),
+                (
+                    "ssr-hydration-deployment",
+                    (SnippetClassification::CompileCandidate, 1),
+                ),
+            ])
+        );
+        assert_eq!(
+            blocks
+                .iter()
+                .filter(|block| block.classification == SnippetClassification::CompileCandidate)
+                .count(),
+            1,
+            "only docs snippets supported by the shared harness should be compile candidates"
+        );
+        assert_eq!(
+            blocks
+                .iter()
+                .filter(|block| block.classification == SnippetClassification::Illustrative)
+                .count(),
+            88
         );
     }
 }

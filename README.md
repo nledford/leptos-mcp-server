@@ -58,6 +58,30 @@ Leptos/Axum applications.
 | **Axum 0.8.9**       | `Router`, `State`, extractors, middleware, database pools          |
 | **SSR/Hydration**    | Feature flags, static files, deployment, hydration debugging       |
 
+## Snippet Classification Policy
+
+Rust snippets in `docs/` and Rust recipe files are inventoried as one of three
+classifications:
+
+- `CompileCandidate`: complete enough for an automated compile harness. The
+  snippet may rely only on wrappers/import prelude that the repository harness
+  supplies uniformly. If it needs a custom component, `main`, async runtime,
+  route tree, feature flag, database schema, generated file, or fixture, add
+  that support to the harness before using this classification.
+- `Illustrative`: real example code that teaches an API or pattern but is not
+  expected to compile by itself. Use this for fragments, excerpts, omitted
+  imports, app-specific state, database examples, and code that needs wrappers
+  the repository does not yet provide. This is the default for new snippets.
+- `Ignore`: fenced Rust-like text that should not count as a snippet or compile
+  target, such as intentionally invalid code, expected compiler diagnostics, or
+  placeholders. Prefer `Illustrative` when the block is useful example code even
+  if it is incomplete.
+
+When adding a new Rust block, classify it by asking: can the current shared
+harness compile it without guessing about missing surroundings? If yes, mark it
+`CompileCandidate`; if no but it is useful example code, mark it `Illustrative`;
+if it is not example code, mark it `Ignore`.
+
 ## Prerequisites
 
 - Rust 1.96 or newer. `Cargo.toml` declares `rust-version = "1.96"`, and CI

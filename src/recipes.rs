@@ -1,5 +1,6 @@
 //! Task-oriented recipes for Leptos application workflows.
 
+use crate::docs::SnippetClassification;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -21,6 +22,18 @@ pub struct Recipe {
     pub steps: &'static [&'static str],
     pub files: &'static [RecipeFile],
     pub validation: &'static [&'static str],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecipeRustSnippet {
+    pub recipe_id: &'static str,
+    pub path: &'static str,
+    /// Classification follows the same policy as documentation snippets in
+    /// `SnippetClassification`: recipe file excerpts stay `Illustrative` unless
+    /// they are complete enough for a shared compile harness or that harness
+    /// supplies every required wrapper, import, feature, and fixture.
+    pub classification: SnippetClassification,
+    pub content: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -351,6 +364,29 @@ pub fn all_recipes() -> &'static [Recipe] {
     RECIPES
 }
 
+pub fn rust_recipe_snippets() -> Vec<RecipeRustSnippet> {
+    let mut snippets = Vec::new();
+
+    for recipe in RECIPES {
+        for file in recipe.files {
+            if file.language == "rust" {
+                snippets.push(RecipeRustSnippet {
+                    recipe_id: recipe.id,
+                    path: file.path,
+                    classification: if recipe.id == "static-assets" && file.path == "src/main.rs" {
+                        SnippetClassification::CompileCandidate
+                    } else {
+                        SnippetClassification::Illustrative
+                    },
+                    content: file.content,
+                });
+            }
+        }
+    }
+
+    snippets
+}
+
 pub fn get_recipe(query: &str) -> Result<&'static Recipe, RecipeLookupError> {
     let normalized = normalize(query);
     if normalized.is_empty() {
@@ -383,6 +419,7 @@ fn normalize(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn resolves_static_asset_recipe_by_alias() {
@@ -411,5 +448,70 @@ mod tests {
             assert!(!recipe.validation.is_empty());
             assert!(!recipe.files.is_empty());
         }
+    }
+
+    #[test]
+    fn rust_recipe_snippet_inventory_exposes_current_classifications() {
+        let snippets = rust_recipe_snippets();
+
+        let mut inventory: HashMap<&str, Vec<(&str, SnippetClassification)>> = HashMap::new();
+        for snippet in &snippets {
+            inventory
+                .entry(snippet.recipe_id)
+                .or_default()
+                .push((snippet.path, snippet.classification));
+        }
+        for snippets in inventory.values_mut() {
+            snippets.sort_unstable_by_key(|(path, _)| *path);
+        }
+
+        assert_eq!(
+            inventory,
+            HashMap::from([
+                (
+                    "ssr-app",
+                    vec![("src/main.rs", SnippetClassification::Illustrative)],
+                ),
+                (
+                    "server-functions",
+                    vec![("src/main.rs", SnippetClassification::Illustrative)],
+                ),
+                (
+                    "static-assets",
+                    vec![("src/main.rs", SnippetClassification::CompileCandidate)],
+                ),
+                (
+                    "custom-handler",
+                    vec![("src/main.rs", SnippetClassification::Illustrative)],
+                ),
+                (
+                    "state-context",
+                    vec![("src/main.rs", SnippetClassification::Illustrative)],
+                ),
+                (
+                    "database-query-patterns",
+                    vec![
+                        ("src/main.rs", SnippetClassification::Illustrative),
+                        ("src/server/items.rs", SnippetClassification::Illustrative),
+                        ("src/server/search.rs", SnippetClassification::Illustrative),
+                    ],
+                ),
+            ])
+        );
+        assert_eq!(
+            snippets
+                .iter()
+                .filter(|snippet| snippet.classification == SnippetClassification::CompileCandidate)
+                .count(),
+            1,
+            "only recipe snippets supported by the shared harness should be compile candidates"
+        );
+        assert_eq!(
+            snippets
+                .iter()
+                .filter(|snippet| snippet.classification == SnippetClassification::Illustrative)
+                .count(),
+            7
+        );
     }
 }
