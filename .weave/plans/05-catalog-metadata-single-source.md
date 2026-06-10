@@ -35,44 +35,44 @@ Make catalog metadata coherent, validated, and maintainable without ID-based dup
 
 ## TODOs
 
-- [ ] 1. Add catalog invariant tests
+- [x] 1. Add catalog invariant tests
   **What**: Assert unique section IDs, unique normalized aliases within a lookup scope, one metadata record per section, no orphan metadata, valid `related_sections`, valid resource URI round trips, and non-empty version/source fields.
   **Files**: `src/docs.rs`
   **Acceptance**: Tests fail on duplicate/missing catalog metadata.
 
-- [ ] 2. Choose and document single-source model
+- [x] 2. Choose and document single-source model
   **What**: Decide between embedding `SectionMetadata` directly in `DocSection`, creating a `CatalogSection { section, metadata }`, or a static table that owns both with derived accessors.
   **Files**: `src/docs.rs`
   **Acceptance**: The chosen model eliminates ID joins for normal section summary generation.
 
-- [ ] 3. Refactor catalog accessors
+- [x] 3. Refactor catalog accessors
   **What**: Update `list_sections`, `get_section`, `get_metadata`, `search_sections`, `rust_code_blocks`, and resource lookup to use the new model without changing external outputs.
   **Files**: `src/docs.rs`, `src/tools.rs`, `src/protocol.rs`
   **Acceptance**: Existing tool/resource outputs remain semantically identical.
 
-- [ ] 4. Normalize version/source ownership
+- [x] 4. Normalize version/source ownership
   **What**: Centralize crate/version/docs URL definitions so `LEPTOS_VERSION`, `LEPTOS_AXUM_VERSION`, `AXUM_VERSION`, and associated docs URLs cannot drift across docs/api metadata.
   **Files**: `src/api.rs`, `src/docs.rs`
   **Acceptance**: Tests assert docs metadata versions match API symbol versions for shared crates.
 
-- [ ] 5. Add related-section validation coverage
+- [x] 5. Add related-section validation coverage
   **What**: Ensure every `related_sections` entry points to a known section ID and no section relates to itself unless explicitly allowed.
   **Files**: `src/docs.rs`
   **Acceptance**: Invalid relation IDs fail tests with actionable messages.
 
-- [ ] 6. Add behavior-preserving release note if needed
+- [x] 6. Add behavior-preserving release note if needed
   **What**: If no public IDs change, add no user-facing note; if any duplicate/ambiguous aliases are removed, document as breaking.
   **Files**: `CHANGELOG.md`
   **Acceptance**: Any lookup behavior change is explicitly documented.
 
 ## Verification
-- [ ] Run `cargo test docs`.
-- [ ] Run `cargo test tools`.
-- [ ] Run `cargo test protocol::tests::resources_list_and_read_expose_documentation_sections`.
-- [ ] Run `cargo fmt -- --check`.
-- [ ] Run `cargo clippy --locked --all-targets -- -D warnings`.
-- [ ] Run `cargo test` before merging.
-- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
+- [x] Run `cargo test docs`.
+- [x] Run `cargo test tools`.
+- [x] Run `cargo test protocol::tests::resources_list_and_read_expose_documentation_sections`.
+- [x] Run `cargo fmt -- --check`.
+- [x] Run `cargo clippy --locked --all-targets -- -D warnings`.
+- [x] Run `cargo test` before merging.
+- [x] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 
 ## Breaking-Change Notes
 - Intended as behavior-preserving for public catalog IDs.
