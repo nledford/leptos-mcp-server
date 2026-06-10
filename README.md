@@ -99,6 +99,51 @@ Add to your MCP config file:
 
 Use an absolute path to the release binary you built in the installation step.
 
+## Usage with OpenCode
+
+OpenCode configures MCP servers in an `mcp` object. Add a local server entry to
+`opencode.json` in your project root, or to `~/.config/opencode/opencode.json`
+for a user-wide configuration:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "leptos": {
+      "type": "local",
+      "command": [
+        "/absolute/path/to/leptos-mcp-server/target/release/leptos-mcp-server"
+      ],
+      "enabled": true
+    }
+  }
+}
+```
+
+Use the absolute path to the release binary produced by
+`cargo build --release --locked`. To adjust server logging while OpenCode runs
+it, add an `environment` object:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "leptos": {
+      "type": "local",
+      "command": [
+        "/absolute/path/to/leptos-mcp-server/target/release/leptos-mcp-server"
+      ],
+      "environment": {
+        "RUST_LOG": "leptos_mcp_server=warn"
+      }
+    }
+  }
+}
+```
+
+Restart OpenCode after updating the config so it can launch the MCP server and
+discover the Leptos tools.
+
 ## MCP Smoke Tests
 
 The examples below assume `cargo build --release --locked` has already produced
