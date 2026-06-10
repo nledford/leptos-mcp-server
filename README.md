@@ -92,11 +92,14 @@ This repository includes an optional Agent Skill for agents that support the
 .agents/skills/leptos-mcp-server/SKILL.md
 ```
 
-Install it from the repository root with the `skills` CLI:
+Install it directly from GitHub with the `skills` CLI:
 
 ```bash
-npx skills add ./.agents/skills/leptos-mcp-server
+npx skills add https://github.com/nledford/leptos-mcp-server --skill leptos-mcp-server
 ```
+
+For a local checkout, use `npx skills add ./.agents/skills/leptos-mcp-server`
+from the repository root.
 
 The skill documents when agents should use this MCP server, its exact tools,
 resources, prompts, schemas, setup steps, workflows, troubleshooting, and

@@ -121,7 +121,13 @@ cargo deny check
 
 ## Installing this Agent Skill
 
-The `skills` npm package supports SKILL.md skills with YAML frontmatter and local path installs. From this repository root, install this local skill with:
+The `skills` npm package supports SKILL.md skills with YAML frontmatter. Install this skill directly from GitHub with:
+
+```bash
+npx skills add https://github.com/nledford/leptos-mcp-server --skill leptos-mcp-server
+```
+
+For a local checkout, install from the repository root with:
 
 ```bash
 npx skills add ./.agents/skills/leptos-mcp-server
@@ -129,4 +135,4 @@ npx skills add ./.agents/skills/leptos-mcp-server
 
 Manual installation is also valid: copy `.agents/skills/leptos-mcp-server` into an agent skill directory such as `~/.agents/skills/leptos-mcp-server`.
 
-This repository is not an npm package and has no `package.json`, so no npm publishing metadata was added. Current `skills` CLI docs do not show stable `npx skills add <npm-package-name>` behavior for arbitrary npm packages; npm-package-distributed skills appear to rely on already-installed `node_modules` scanning that is marked experimental in the CLI source. If this repository later becomes an npm package, include `.agents/skills/**` in `package.json.files` so the skill files are present in the published tarball.
+This repository is not an npm package and has no `package.json`, so no npm publishing metadata was added. The GitHub install command uses the repository as a `skills` source and `--skill leptos-mcp-server` selects the nested skill directory. If this repository later becomes an npm package, include `.agents/skills/**` in `package.json.files` so the skill files are present in the published tarball.
