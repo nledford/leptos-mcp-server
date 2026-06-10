@@ -35,44 +35,44 @@ Create clean boundaries among transport framing, JSON-RPC protocol dispatch, and
 
 ## TODOs
 
-- [ ] 1. Add behavior characterization tests
+- [x] 1. Add behavior characterization tests
   **What**: Pin `initialize` capability keys, tool schemas, resources shape, prompt shape, notification behavior, and JSON-RPC error codes before moving code.
   **Files**: `src/protocol.rs`, `tests/stdio.rs`
   **Acceptance**: Tests would catch accidental capability or wire-format drift.
 
-- [ ] 2. Extract capability/catalog builders
+- [x] 2. Extract capability/catalog builders
   **What**: Move inline JSON builders for initialize capabilities, tools/list schemas, resources/list, and prompts/list into a focused module or structs with pure functions.
   **Files**: `src/protocol.rs`, `src/lib.rs`, `src/tools.rs`, `src/docs.rs`, `src/prompts.rs`
   **Acceptance**: Builders are callable from tests without constructing stdio transport.
 
-- [ ] 3. Extract transport/framing code
+- [x] 3. Extract transport/framing code
   **What**: Move `LineRead`, `read_limited_line`, `discard_until_newline` if still needed, and `decode_line` into a transport-focused module.
   **Files**: `src/protocol.rs`, `src/lib.rs`
   **Acceptance**: Framing tests live with transport code; protocol dispatch no longer directly owns low-level buffer mechanics.
 
-- [ ] 4. Simplify protocol dispatcher
+- [x] 4. Simplify protocol dispatcher
   **What**: Keep `McpServer::handle_line`/`handle_request` focused on JSON-RPC validation, notification semantics, and domain routing.
   **Files**: `src/protocol.rs`
   **Acceptance**: `handle_request` reads as method dispatch only; transport concerns are absent.
 
-- [ ] 5. Preserve process entrypoint
+- [x] 5. Preserve process entrypoint
   **What**: Keep `src/main.rs` minimal and update imports if module names change.
   **Files**: `src/main.rs`, `src/lib.rs`
   **Acceptance**: Binary still starts the stdio MCP server and logs only to stderr.
 
-- [ ] 6. Document boundary decisions
+- [x] 6. Document boundary decisions
   **What**: Add concise module-level comments explaining protocol vs transport vs domain responsibilities.
   **Files**: `src/protocol.rs`, `src/lib.rs`
   **Acceptance**: Future capability additions have an obvious home.
 
 ## Verification
-- [ ] Run `cargo test protocol`.
-- [ ] Run `cargo test --test stdio`.
-- [ ] Run `cargo test tools` if tool schema construction changes touch tool constants/output.
-- [ ] Run `cargo fmt -- --check`.
-- [ ] Run `cargo clippy --locked --all-targets -- -D warnings`.
-- [ ] Run `cargo test` before merging.
-- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
+- [x] Run `cargo test protocol`.
+- [x] Run `cargo test --test stdio`.
+- [x] Run `cargo test tools` if tool schema construction changes touch tool constants/output.
+- [x] Run `cargo fmt -- --check`.
+- [x] Run `cargo clippy --locked --all-targets -- -D warnings`.
+- [x] Run `cargo test` before merging.
+- [x] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 
 ## Breaking-Change Notes
 - This plan should be behavior-preserving unless Plans 02 or 03 have already introduced intentional changes.
