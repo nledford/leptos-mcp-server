@@ -13,26 +13,119 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  rust:
+  msrv:
+    name: Check and test (${{ matrix.rust }})
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        rust:
+          - 1.96.0
+          - stable
     steps:
       - name: Checkout repository
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-      - name: Install MSRV
-        run: rustup toolchain install 1.96.0 --profile minimal
-      - name: Check MSRV
-        run: cargo +1.96.0 check --locked
-      - name: Format
-        run: cargo fmt -- --check
+        run: |
+          rustup toolchain install "${{ matrix.rust }}" --profile minimal
+          rustup default "${{ matrix.rust }}"
+
+      - name: Cache Cargo data
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-msrv-${{ matrix.rust }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+
+      - name: Check
+        run: cargo check --locked
+
       - name: Test
         run: cargo test --locked
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup default stable
+
+      - name: Cache Cargo data
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-fmt-stable-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+
+      - name: Format
+        run: cargo fmt -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      - name: Cache Cargo data
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-clippy-stable-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+
       - name: Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
+
+  build-smoke:
+    name: Build and smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache Cargo data
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-build-smoke-stable-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+
       - name: Build release
         run: cargo build --release --locked
+
       - name: Binary smoke
         run: |
           echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
@@ -49,12 +142,60 @@ jobs:
           tools = response["result"]["tools"]
           assert isinstance(tools, list) and tools
           PY
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache Cargo data
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-coverage-stable-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@492cad282ff2bc751208d9bdcbbcce57c3a90925 # cargo-llvm-cov
         with:
           tool: cargo-llvm-cov
       - name: Coverage
         run: cargo llvm-cov --locked --summary-only --fail-under-lines 70
+
+  dependency-policy:
+    name: Dependency policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache Cargo data
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-dependency-policy-stable-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+
       - name: Install cargo-audit
         uses: taiki-e/install-action@08b635a8ab62d28d92494f1a6ebd22feeb2be229 # cargo-audit
         with:
@@ -65,5 +206,28 @@ jobs:
         uses: taiki-e/install-action@894ed6ded408bba4b650a982305dc5353e661648 # cargo-deny
         with:
           tool: cargo-deny
+
       - name: Dependency policy
         run: cargo deny check
+
+  ci-success:
+    name: CI success
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - msrv
+      - fmt
+      - clippy
+      - build-smoke
+      - coverage
+      - dependency-policy
+    if: always()
+    steps:
+      - name: Require all CI jobs to pass
+        run: |
+          test "${{ needs.msrv.result }}" = "success"
+          test "${{ needs.fmt.result }}" = "success"
+          test "${{ needs.clippy.result }}" = "success"
+          test "${{ needs.build-smoke.result }}" = "success"
+          test "${{ needs.coverage.result }}" = "success"
+          test "${{ needs.dependency-policy.result }}" = "success"

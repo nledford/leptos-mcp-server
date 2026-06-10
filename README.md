@@ -61,7 +61,7 @@ Leptos/Axum applications.
 ## Prerequisites
 
 - Rust 1.96 or newer. `Cargo.toml` declares `rust-version = "1.96"`, and CI
-  checks Rust 1.96.0 plus the current stable toolchain.
+  runs check and test jobs on Rust 1.96.0 plus the current stable toolchain.
 - Cargo, included with Rust.
 - Optional CI-style tools for local parity: `cargo-llvm-cov`, `cargo-audit`, and
   `cargo-deny`.
@@ -229,6 +229,11 @@ cargo check --locked
 
 # Check the declared MSRV, matching CI
 cargo +1.96.0 check --locked
+cargo +1.96.0 test --locked
+
+# Check the current stable toolchain, matching CI
+cargo +stable check --locked
+cargo +stable test --locked
 
 # Format check
 cargo fmt -- --check

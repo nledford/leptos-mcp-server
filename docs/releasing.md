@@ -57,8 +57,8 @@ one `vX.Y.Z` tag.
   job-level permissions: `contents: write` and `pull-requests: write`.
 - Enable **Allow GitHub Actions to create and approve pull requests** if using
   the default `GITHUB_TOKEN` for release PRs.
-- Protect `main` and require the `CI` workflow before merging application or
-  release PRs.
+- Protect `main` and require the `CI success` check before merging application
+  or release PRs.
 
 No publishing secret is required while `release-plz.toml` uses `git_only = true`.
 
