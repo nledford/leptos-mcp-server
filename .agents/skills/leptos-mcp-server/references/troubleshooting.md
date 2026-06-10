@@ -1,0 +1,47 @@
+# Error handling and troubleshooting
+
+## Server does not start
+
+- Confirm `cargo build --release --locked` completed successfully.
+- Confirm the MCP config `command` is an absolute path to `target/release/leptos-mcp-server`.
+- Restart the MCP client after config changes.
+- Remember that server logs go to stderr. stdout must contain only JSON-RPC responses.
+
+## Manual smoke test has no useful output
+
+- Send one complete JSON object per line.
+- Redirect stderr if you need raw JSON on stdout: `2>/dev/null`.
+- Use `tools/list` first to confirm the binary starts and lists tools.
+
+## JSON-RPC or MCP errors
+
+- Invalid JSON returns parse error `-32700`.
+- Missing/invalid `jsonrpc`, method, or params returns standard JSON-RPC errors.
+- Unknown method returns `-32601`.
+- Unknown tool names or bad params return invalid params.
+- Individual request lines must be at most 1 MiB.
+
+## Tool argument errors
+
+- Tool arguments are deserialized with unknown fields denied. Remove extra fields.
+- `get-documentation` does not perform arbitrary substring matching. Call `list-sections` or `search-docs`, then pass a canonical id or declared alias.
+- `leptos-diagnostics` requires non-empty `code` and rejects inputs larger than 262144 bytes.
+- `lookup-api` only covers the curated symbols listed in [tools.md](tools.md), not every symbol in the crates.
+
+## Prompt pitfalls
+
+- `prompts/get` requires a non-empty prompt name.
+- Prompt names normalize spaces/underscores to hyphens.
+- Required prompt arguments are not enforced by rendering. Missing values become empty strings, so validate arguments before calling.
+
+## Scope failures
+
+- If a task needs live upstream docs, this MCP server may be stale because it uses embedded documentation reviewed at a fixed date.
+- If a task needs project-specific context, read the project files directly.
+- If a task needs authoritative compiler behavior, run Rust tooling. `leptos-diagnostics` is heuristic only.
+- If a task needs database state, migrations, schemas, or query execution, use appropriate database/project tools. This MCP server only provides SQL guidance.
+
+## Security and privacy reminders
+
+- Do not send secrets, tokens, credentials, or confidential code into prompt/diagnostics inputs unless the MCP client transcript/log handling is trusted.
+- Do not assume the server made network, filesystem, or database changes; it exposes read-only embedded docs, recipes, prompts, resources, and in-memory diagnostics.
