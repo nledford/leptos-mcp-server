@@ -8,6 +8,18 @@ request is opened.
 
 ## Unreleased
 
+### Breaking diagnostic behavior
+
+- Diagnostic severity/confidence changes are intentional breaking behavior for
+  clients that gate workflows on `Error` severity or `High` confidence. Affected
+  rule IDs: `leptos.signal-get-in-view` is now `Warning`/`Medium`,
+  `leptos.missing-component-attribute` is now `Warning`/`Medium`,
+  `leptos.server-fn-duplicate-path` is now `Warning`/`Medium`, and
+  `leptos.deprecated-create-signal` confidence is now `Medium`.
+- Clients should treat diagnostics as advisory unless a rule is explicitly
+  documented as compiler-equivalent. Currently, high-confidence errors are
+  limited to `leptos.server-fn-async` and `leptos.server-fn-generic`.
+
 ## [0.1.0](https://github.com/nledford/leptos-mcp-server/releases/tag/v0.1.0) - 2026-06-10
 
 ### Other

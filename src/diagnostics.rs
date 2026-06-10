@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Error,
@@ -10,11 +10,12 @@ pub enum Severity {
     Info,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Confidence {
     High,
     Medium,
+    Low,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -33,6 +34,155 @@ pub struct Diagnostic {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_fix: Option<&'static str>,
 }
+
+impl Diagnostic {
+    fn new(rule: RuleMetadata, span: SourceSpan) -> Self {
+        debug_assert!(
+            rule.allows_error_high
+                || rule.severity != Severity::Error
+                || rule.confidence != Confidence::High,
+            "{} emits Severity::Error + Confidence::High without metadata approval",
+            rule.rule_id
+        );
+
+        Self {
+            rule_id: rule.rule_id,
+            severity: rule.severity,
+            message: rule.message,
+            span,
+            confidence: rule.confidence,
+            suggested_fix: rule.suggested_fix,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RuleMetadata {
+    rule_id: &'static str,
+    severity: Severity,
+    confidence: Confidence,
+    message: &'static str,
+    suggested_fix: Option<&'static str>,
+    /// Only rules backed by structural evidence should set this. Speculative
+    /// substring rules must not emit the strongest diagnostic combination.
+    allows_error_high: bool,
+}
+
+const SIGNAL_GET_IN_VIEW: RuleMetadata = RuleMetadata {
+    rule_id: "leptos.signal-get-in-view",
+    severity: Severity::Warning,
+    confidence: Confidence::Medium,
+    message: "Reactive signal reads inside views should be wrapped in `move ||`.",
+    suggested_fix: Some("Use `{move || value.get()}` for reactive view updates."),
+    allows_error_high: false,
+};
+
+const SIGNAL_DESTRUCTURING: RuleMetadata = RuleMetadata {
+    rule_id: "leptos.signal-destructuring",
+    severity: Severity::Warning,
+    confidence: Confidence::Medium,
+    message: "Signals are clearer when destructured into getter and setter bindings.",
+    suggested_fix: Some("Use `let (getter, setter) = signal(value);`."),
+    allows_error_high: false,
+};
+
+const MISSING_COMPONENT_ATTRIBUTE: RuleMetadata = RuleMetadata {
+    rule_id: "leptos.missing-component-attribute",
+    severity: Severity::Warning,
+    confidence: Confidence::Medium,
+    message: "Functions returning `impl IntoView` should be annotated with `#[component]`.",
+    suggested_fix: Some("Add `#[component]` immediately above the component function."),
+    allows_error_high: false,
+};
+
+const SERVER_FN_ERROR: RuleMetadata = RuleMetadata {
+    rule_id: "leptos.server-fn-error",
+    severity: Severity::Info,
+    confidence: Confidence::Medium,
+    message: "Server functions should return `Result<T, ServerFnError>`.",
+    suggested_fix: Some("Return `Result<T, ServerFnError>` from server functions."),
+    allows_error_high: false,
+};
+
+const SERVER_FN_ASYNC: RuleMetadata = RuleMetadata {
+    rule_id: "leptos.server-fn-async",
+    severity: Severity::Error,
+    confidence: Confidence::High,
+    message: "Server functions must be async.",
+    suggested_fix: Some("Add `async` to the server function signature."),
+    allows_error_high: true,
+};
+
+const SERVER_FN_GENERIC: RuleMetadata = RuleMetadata {
+    rule_id: "leptos.server-fn-generic",
+    severity: Severity::Error,
+    confidence: Confidence::High,
+    message: "Server functions cannot be generic.",
+    suggested_fix: Some(
+        "Move generic logic into a private helper and expose concrete server functions.",
+    ),
+    allows_error_high: true,
+};
+
+const SERVER_FN_PREFIX: RuleMetadata = RuleMetadata {
+    rule_id: "leptos.server-fn-prefix",
+    severity: Severity::Warning,
+    confidence: Confidence::Medium,
+    message: "Server function prefixes should be absolute paths.",
+    suggested_fix: Some("Use a prefix like `\"/api\"`."),
+    allows_error_high: false,
+};
+
+const SERVER_FN_DUPLICATE_PATH: RuleMetadata = RuleMetadata {
+    rule_id: "leptos.server-fn-duplicate-path",
+    severity: Severity::Warning,
+    confidence: Confidence::Medium,
+    message: "Server function endpoint paths must be unique.",
+    suggested_fix: Some("Use a unique prefix or endpoint path for each server function."),
+    allows_error_high: false,
+};
+
+const EXTRACT_STATE: RuleMetadata = RuleMetadata {
+    rule_id: "leptos-axum.extract-state",
+    severity: Severity::Warning,
+    confidence: Confidence::Medium,
+    message: "Server functions using Axum State extractors should use `extract_with_state()`.",
+    suggested_fix: Some("Use `leptos_axum::extract_with_state(&state).await?`."),
+    allows_error_high: false,
+};
+
+const EXTRACT_BODY: RuleMetadata = RuleMetadata {
+    rule_id: "leptos-axum.extract-body",
+    severity: Severity::Warning,
+    confidence: Confidence::Medium,
+    message: "Server functions should not use body-consuming Axum extractors with `extract()`.",
+    suggested_fix: Some("Pass body data as server function arguments instead."),
+    allows_error_high: false,
+};
+
+const DEPRECATED_CREATE_SIGNAL: RuleMetadata = RuleMetadata {
+    rule_id: "leptos.deprecated-create-signal",
+    severity: Severity::Info,
+    confidence: Confidence::Medium,
+    message: "In Leptos 0.8+, prefer `signal()` over `create_signal()`.",
+    suggested_fix: Some("Use `signal(value)` instead of `create_signal(value)`."),
+    allows_error_high: false,
+};
+
+#[cfg(test)]
+const ALL_RULES: &[RuleMetadata] = &[
+    SIGNAL_GET_IN_VIEW,
+    SIGNAL_DESTRUCTURING,
+    MISSING_COMPONENT_ATTRIBUTE,
+    SERVER_FN_ERROR,
+    SERVER_FN_ASYNC,
+    SERVER_FN_GENERIC,
+    SERVER_FN_PREFIX,
+    SERVER_FN_DUPLICATE_PATH,
+    EXTRACT_STATE,
+    EXTRACT_BODY,
+    DEPRECATED_CREATE_SIGNAL,
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DiagnosticSummary {
@@ -112,17 +262,13 @@ fn detect_signal_get_in_view(searchable: &str) -> Vec<Diagnostic> {
                 return None;
             }
 
-            Some(Diagnostic {
-                rule_id: "leptos.signal-get-in-view",
-                severity: Severity::Error,
-                message: "Reactive signal reads inside views should be wrapped in `move ||`.",
-                span: SourceSpan {
+            Some(Diagnostic::new(
+                SIGNAL_GET_IN_VIEW,
+                SourceSpan {
                     line: index + 1,
                     column: column + 1,
                 },
-                confidence: Confidence::Medium,
-                suggested_fix: Some("Use `{move || value.get()}` for reactive view updates."),
-            })
+            ))
         })
         .collect()
 }
@@ -133,17 +279,13 @@ fn detect_signal_destructuring(searchable: &str) -> Vec<Diagnostic> {
         .enumerate()
         .filter_map(|(index, line)| {
             let column = line.find("let signal =")?;
-            Some(Diagnostic {
-                rule_id: "leptos.signal-destructuring",
-                severity: Severity::Warning,
-                message: "Signals are clearer when destructured into getter and setter bindings.",
-                span: SourceSpan {
+            Some(Diagnostic::new(
+                SIGNAL_DESTRUCTURING,
+                SourceSpan {
                     line: index + 1,
                     column: column + 1,
                 },
-                confidence: Confidence::Medium,
-                suggested_fix: Some("Use `let (getter, setter) = signal(value);`."),
-            })
+            ))
         })
         .collect()
 }
@@ -167,18 +309,13 @@ fn detect_missing_component_attribute(searchable: &str) -> Vec<Diagnostic> {
                 return None;
             }
 
-            Some(Diagnostic {
-                rule_id: "leptos.missing-component-attribute",
-                severity: Severity::Error,
-                message:
-                    "Functions returning `impl IntoView` should be annotated with `#[component]`.",
-                span: SourceSpan {
+            Some(Diagnostic::new(
+                MISSING_COMPONENT_ATTRIBUTE,
+                SourceSpan {
                     line: index + 1,
                     column: column + 1,
                 },
-                confidence: Confidence::High,
-                suggested_fix: Some("Add `#[component]` immediately above the component function."),
-            })
+            ))
         })
         .collect()
 }
@@ -200,17 +337,13 @@ fn detect_server_fn_error(server_functions: &[ServerFunctionCandidate]) -> Vec<D
                 return None;
             }
 
-            Some(Diagnostic {
-                rule_id: "leptos.server-fn-error",
-                severity: Severity::Info,
-                message: "Server functions should return `Result<T, ServerFnError>`.",
-                span: SourceSpan {
+            Some(Diagnostic::new(
+                SERVER_FN_ERROR,
+                SourceSpan {
                     line: candidate.line,
                     column: candidate.column,
                 },
-                confidence: Confidence::Medium,
-                suggested_fix: Some("Return `Result<T, ServerFnError>` from server functions."),
-            })
+            ))
         })
         .collect()
 }
@@ -223,17 +356,13 @@ fn detect_server_fn_async(server_functions: &[ServerFunctionCandidate]) -> Vec<D
                 return None;
             }
 
-            Some(Diagnostic {
-                rule_id: "leptos.server-fn-async",
-                severity: Severity::Error,
-                message: "Server functions must be async.",
-                span: SourceSpan {
+            Some(Diagnostic::new(
+                SERVER_FN_ASYNC,
+                SourceSpan {
                     line: candidate.line,
                     column: candidate.column,
                 },
-                confidence: Confidence::High,
-                suggested_fix: Some("Add `async` to the server function signature."),
-            })
+            ))
         })
         .collect()
 }
@@ -246,19 +375,13 @@ fn detect_server_fn_generic(server_functions: &[ServerFunctionCandidate]) -> Vec
                 return None;
             }
 
-            Some(Diagnostic {
-                rule_id: "leptos.server-fn-generic",
-                severity: Severity::Error,
-                message: "Server functions cannot be generic.",
-                span: SourceSpan {
+            Some(Diagnostic::new(
+                SERVER_FN_GENERIC,
+                SourceSpan {
                     line: candidate.line,
                     column: candidate.column,
                 },
-                confidence: Confidence::High,
-                suggested_fix: Some(
-                    "Move generic logic into a private helper and expose concrete server functions.",
-                ),
-            })
+            ))
         })
         .collect()
 }
@@ -274,17 +397,13 @@ fn detect_invalid_server_fn_prefix(
                 return None;
             }
 
-            Some(Diagnostic {
-                rule_id: "leptos.server-fn-prefix",
-                severity: Severity::Warning,
-                message: "Server function prefixes should be absolute paths.",
-                span: SourceSpan {
+            Some(Diagnostic::new(
+                SERVER_FN_PREFIX,
+                SourceSpan {
                     line: candidate.line,
                     column: candidate.column,
                 },
-                confidence: Confidence::Medium,
-                suggested_fix: Some("Use a prefix like `\"/api\"`."),
-            })
+            ))
         })
         .collect()
 }
@@ -303,19 +422,13 @@ fn detect_duplicate_server_fn_paths(
         let path = format!("{prefix}/{endpoint}");
 
         if seen.iter().any(|(seen_path, _, _)| seen_path == &path) {
-            diagnostics.push(Diagnostic {
-                rule_id: "leptos.server-fn-duplicate-path",
-                severity: Severity::Error,
-                message: "Server function endpoint paths must be unique.",
-                span: SourceSpan {
+            diagnostics.push(Diagnostic::new(
+                SERVER_FN_DUPLICATE_PATH,
+                SourceSpan {
                     line: candidate.line,
                     column: candidate.column,
                 },
-                confidence: Confidence::High,
-                suggested_fix: Some(
-                    "Use a unique prefix or endpoint path for each server function.",
-                ),
-            });
+            ));
         } else {
             seen.push((path, candidate.line, candidate.column));
         }
@@ -333,14 +446,10 @@ fn detect_state_extractor_without_state_helper(structural: &str) -> Vec<Diagnost
         return Vec::new();
     }
 
-    vec![Diagnostic {
-        rule_id: "leptos-axum.extract-state",
-        severity: Severity::Warning,
-        message: "Server functions using Axum State extractors should use `extract_with_state()`.",
-        span: find_span(structural, "extract().await"),
-        confidence: Confidence::Medium,
-        suggested_fix: Some("Use `leptos_axum::extract_with_state(&state).await?`."),
-    }]
+    vec![Diagnostic::new(
+        EXTRACT_STATE,
+        find_span(structural, "extract().await"),
+    )]
 }
 
 fn detect_body_extractor_in_server_function(structural: &str) -> Vec<Diagnostic> {
@@ -354,14 +463,10 @@ fn detect_body_extractor_in_server_function(structural: &str) -> Vec<Diagnostic>
         return Vec::new();
     }
 
-    vec![Diagnostic {
-        rule_id: "leptos-axum.extract-body",
-        severity: Severity::Warning,
-        message: "Server functions should not use body-consuming Axum extractors with `extract()`.",
-        span: find_span(structural, "extract().await"),
-        confidence: Confidence::Medium,
-        suggested_fix: Some("Pass body data as server function arguments instead."),
-    }]
+    vec![Diagnostic::new(
+        EXTRACT_BODY,
+        find_span(structural, "extract().await"),
+    )]
 }
 
 fn detect_deprecated_create_signal(searchable: &str) -> Vec<Diagnostic> {
@@ -370,17 +475,13 @@ fn detect_deprecated_create_signal(searchable: &str) -> Vec<Diagnostic> {
         .enumerate()
         .filter_map(|(index, line)| {
             let column = line.find("create_signal")?;
-            Some(Diagnostic {
-                rule_id: "leptos.deprecated-create-signal",
-                severity: Severity::Info,
-                message: "In Leptos 0.8+, prefer `signal()` over `create_signal()`.",
-                span: SourceSpan {
+            Some(Diagnostic::new(
+                DEPRECATED_CREATE_SIGNAL,
+                SourceSpan {
                     line: index + 1,
                     column: column + 1,
                 },
-                confidence: Confidence::High,
-                suggested_fix: Some("Use `signal(value)` instead of `create_signal(value)`."),
-            })
+            ))
         })
         .collect()
 }
@@ -652,6 +753,72 @@ pub fn render_diagnostics(output: &DiagnosticsOutput) -> String {
 mod tests {
     use super::*;
 
+    fn assert_diagnostic(
+        output: &DiagnosticsOutput,
+        rule_id: &'static str,
+        severity: Severity,
+        message: &'static str,
+        span: SourceSpan,
+        confidence: Confidence,
+    ) {
+        let diagnostic = output
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.rule_id == rule_id)
+            .unwrap_or_else(|| panic!("missing diagnostic {rule_id}: {output:#?}"));
+
+        assert_eq!(diagnostic.rule_id, rule_id);
+        assert_eq!(diagnostic.severity, severity);
+        assert_eq!(diagnostic.message, message);
+        assert_eq!(diagnostic.span, span);
+        assert_eq!(diagnostic.confidence, confidence);
+    }
+
+    fn assert_no_diagnostic(output: &DiagnosticsOutput, rule_id: &'static str) {
+        assert!(
+            !output
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.rule_id == rule_id),
+            "unexpected diagnostic {rule_id}: {output:#?}"
+        );
+    }
+
+    fn expected_span(code: &str, needle: &str) -> SourceSpan {
+        for (line_index, line) in code.lines().enumerate() {
+            if let Some(column_index) = line.find(needle) {
+                return SourceSpan {
+                    line: line_index + 1,
+                    column: column_index + 1,
+                };
+            }
+        }
+
+        panic!("needle {needle:?} not found in test code");
+    }
+
+    #[test]
+    fn rule_metadata_documents_high_confidence_error_emitters() {
+        let high_confidence_error_rules: Vec<&'static str> = ALL_RULES
+            .iter()
+            .filter(|rule| rule.severity == Severity::Error && rule.confidence == Confidence::High)
+            .map(|rule| rule.rule_id)
+            .collect();
+
+        assert_eq!(
+            high_confidence_error_rules,
+            vec!["leptos.server-fn-async", "leptos.server-fn-generic"]
+        );
+        assert!(
+            ALL_RULES
+                .iter()
+                .filter(
+                    |rule| rule.severity == Severity::Error && rule.confidence == Confidence::High
+                )
+                .all(|rule| rule.allows_error_high)
+        );
+    }
+
     #[test]
     fn reports_direct_signal_get_in_view_even_when_other_move_closure_exists() {
         let output = LeptosDiagnostics::analyze(
@@ -671,6 +838,71 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|d| d.rule_id == "leptos.signal-get-in-view")
+        );
+    }
+
+    #[test]
+    fn characterizes_signal_get_in_view_diagnostic_and_move_closure_exemption() {
+        let code = r#"#[component]
+fn Counter() -> impl IntoView {
+    view! { <p>{count.get()}</p> }
+}
+"#;
+        let output = LeptosDiagnostics::analyze(code);
+
+        assert_diagnostic(
+            &output,
+            "leptos.signal-get-in-view",
+            Severity::Warning,
+            "Reactive signal reads inside views should be wrapped in `move ||`.",
+            expected_span(code, ".get()"),
+            Confidence::Medium,
+        );
+
+        let closure_code = r#"#[component]
+fn Counter() -> impl IntoView {
+    view! { <p>{move || count.get()}</p> }
+}
+"#;
+        assert_no_diagnostic(
+            &LeptosDiagnostics::analyze(closure_code),
+            "leptos.signal-get-in-view",
+        );
+    }
+
+    #[test]
+    fn render_diagnostics_preserves_downgraded_rule_text() {
+        let code = r#"#[component]
+fn Counter() -> impl IntoView {
+    view! { <p>{count.get()}</p> }
+}
+"#;
+        let output = LeptosDiagnostics::analyze(code);
+        let rendered = render_diagnostics(&output);
+
+        assert!(rendered.contains("WARNING [leptos.signal-get-in-view]"));
+        assert!(
+            rendered.contains("Reactive signal reads inside views should be wrapped in `move ||`.")
+        );
+    }
+
+    #[test]
+    fn characterizes_signal_destructuring_diagnostic_and_tuple_binding_exemption() {
+        let code = "let signal = signal(0);\n";
+        let output = LeptosDiagnostics::analyze(code);
+
+        assert_diagnostic(
+            &output,
+            "leptos.signal-destructuring",
+            Severity::Warning,
+            "Signals are clearer when destructured into getter and setter bindings.",
+            expected_span(code, "let signal ="),
+            Confidence::Medium,
+        );
+
+        assert_no_diagnostic(
+            &LeptosDiagnostics::analyze("let (count, set_count) = signal(0);\n"),
+            "leptos.signal-destructuring",
         );
     }
 
@@ -724,6 +956,43 @@ mod tests {
     }
 
     #[test]
+    fn characterizes_missing_component_attribute_diagnostic_and_exemptions() {
+        let code = r#"fn Missing() -> impl IntoView {
+    view! { <p>"missing"</p> }
+}
+"#;
+        let output = LeptosDiagnostics::analyze(code);
+
+        assert_diagnostic(
+            &output,
+            "leptos.missing-component-attribute",
+            Severity::Warning,
+            "Functions returning `impl IntoView` should be annotated with `#[component]`.",
+            expected_span(code, "-> impl IntoView"),
+            Confidence::Medium,
+        );
+
+        let attributed = r#"#[component]
+fn Present() -> impl IntoView {
+    view! { <p>"present"</p> }
+}
+"#;
+        assert_no_diagnostic(
+            &LeptosDiagnostics::analyze(attributed),
+            "leptos.missing-component-attribute",
+        );
+
+        let lowercase = r#"fn helper() -> impl IntoView {
+    view! { <p>"helper"</p> }
+}
+"#;
+        assert_no_diagnostic(
+            &LeptosDiagnostics::analyze(lowercase),
+            "leptos.missing-component-attribute",
+        );
+    }
+
+    #[test]
     fn reports_server_functions_that_are_not_async_or_are_generic() {
         let output = LeptosDiagnostics::analyze(
             r#"
@@ -745,6 +1014,93 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|d| d.rule_id == "leptos.server-fn-generic")
+        );
+    }
+
+    #[test]
+    fn characterizes_server_function_return_error_diagnostic_and_server_fn_error_exemption() {
+        let code = r#"#[server(Load)]
+pub async fn load() -> Result<String, AppError> {
+    Ok(String::new())
+}
+"#;
+        let output = LeptosDiagnostics::analyze(code);
+
+        assert_diagnostic(
+            &output,
+            "leptos.server-fn-error",
+            Severity::Info,
+            "Server functions should return `Result<T, ServerFnError>`.",
+            expected_span(code, "#[server"),
+            Confidence::Medium,
+        );
+
+        let ok_code = r#"#[server(Load)]
+pub async fn load() -> Result<String, ServerFnError> {
+    Ok(String::new())
+}
+"#;
+        assert_no_diagnostic(
+            &LeptosDiagnostics::analyze(ok_code),
+            "leptos.server-fn-error",
+        );
+    }
+
+    #[test]
+    fn characterizes_server_function_async_diagnostic_and_async_exemption() {
+        let code = r#"#[server(Save)]
+pub fn save() -> Result<(), ServerFnError> {
+    Ok(())
+}
+"#;
+        let output = LeptosDiagnostics::analyze(code);
+
+        assert_diagnostic(
+            &output,
+            "leptos.server-fn-async",
+            Severity::Error,
+            "Server functions must be async.",
+            expected_span(code, "#[server"),
+            Confidence::High,
+        );
+
+        let async_code = r#"#[server(Save)]
+pub async fn save() -> Result<(), ServerFnError> {
+    Ok(())
+}
+"#;
+        assert_no_diagnostic(
+            &LeptosDiagnostics::analyze(async_code),
+            "leptos.server-fn-async",
+        );
+    }
+
+    #[test]
+    fn characterizes_server_function_generic_diagnostic_and_concrete_exemption() {
+        let code = r#"#[server(Save)]
+pub async fn save<T>(value: T) -> Result<(), ServerFnError> {
+    Ok(())
+}
+"#;
+        let output = LeptosDiagnostics::analyze(code);
+
+        assert_diagnostic(
+            &output,
+            "leptos.server-fn-generic",
+            Severity::Error,
+            "Server functions cannot be generic.",
+            expected_span(code, "#[server"),
+            Confidence::High,
+        );
+
+        let concrete_code = r#"#[server(Save)]
+pub async fn save(value: String) -> Result<(), ServerFnError> {
+    Ok(())
+}
+"#;
+        assert_no_diagnostic(
+            &LeptosDiagnostics::analyze(concrete_code),
+            "leptos.server-fn-generic",
         );
     }
 
@@ -775,6 +1131,62 @@ mod tests {
     }
 
     #[test]
+    fn characterizes_server_function_prefix_diagnostic_and_absolute_prefix_exemption() {
+        let code = r#"#[server(Save, prefix = "api", endpoint = "save")]
+pub async fn save() -> Result<(), ServerFnError> { Ok(()) }
+"#;
+        let output = LeptosDiagnostics::analyze(code);
+
+        assert_diagnostic(
+            &output,
+            "leptos.server-fn-prefix",
+            Severity::Warning,
+            "Server function prefixes should be absolute paths.",
+            expected_span(code, "#[server"),
+            Confidence::Medium,
+        );
+
+        let absolute_code = r#"#[server(Save, prefix = "/api", endpoint = "save")]
+pub async fn save() -> Result<(), ServerFnError> { Ok(()) }
+"#;
+        assert_no_diagnostic(
+            &LeptosDiagnostics::analyze(absolute_code),
+            "leptos.server-fn-prefix",
+        );
+    }
+
+    #[test]
+    fn characterizes_duplicate_server_function_path_diagnostic_and_unique_path_exemption() {
+        let code = r#"#[server(One, prefix = "/api", endpoint = "save")]
+pub async fn one() -> Result<(), ServerFnError> { Ok(()) }
+
+#[server(Two, prefix = "/api", endpoint = "save")]
+pub async fn two() -> Result<(), ServerFnError> { Ok(()) }
+"#;
+        let output = LeptosDiagnostics::analyze(code);
+
+        assert_diagnostic(
+            &output,
+            "leptos.server-fn-duplicate-path",
+            Severity::Warning,
+            "Server function endpoint paths must be unique.",
+            SourceSpan { line: 4, column: 1 },
+            Confidence::Medium,
+        );
+
+        let unique_code = r#"#[server(One, prefix = "/api", endpoint = "save-one")]
+pub async fn one() -> Result<(), ServerFnError> { Ok(()) }
+
+#[server(Two, prefix = "/api", endpoint = "save-two")]
+pub async fn two() -> Result<(), ServerFnError> { Ok(()) }
+"#;
+        assert_no_diagnostic(
+            &LeptosDiagnostics::analyze(unique_code),
+            "leptos.server-fn-duplicate-path",
+        );
+    }
+
+    #[test]
     fn reports_axum_state_and_body_extractor_misuse_in_server_functions() {
         let output = LeptosDiagnostics::analyze(
             r#"
@@ -800,6 +1212,96 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|d| d.rule_id == "leptos-axum.extract-body")
+        );
+    }
+
+    #[test]
+    fn characterizes_axum_state_extractor_diagnostic_and_extract_with_state_exemption() {
+        let code = r#"use axum::extract::State;
+
+#[server(Load)]
+pub async fn load() -> Result<(), ServerFnError> {
+    let State(state): State<AppState> = leptos_axum::extract().await?;
+    Ok(())
+}
+"#;
+        let output = LeptosDiagnostics::analyze(code);
+
+        assert_diagnostic(
+            &output,
+            "leptos-axum.extract-state",
+            Severity::Warning,
+            "Server functions using Axum State extractors should use `extract_with_state()`.",
+            expected_span(code, "extract().await"),
+            Confidence::Medium,
+        );
+
+        let helper_code = r#"use axum::extract::State;
+
+#[server(Load)]
+pub async fn load() -> Result<(), ServerFnError> {
+    let State(state): State<AppState> = leptos_axum::extract_with_state(&state).await?;
+    Ok(())
+}
+"#;
+        assert_no_diagnostic(
+            &LeptosDiagnostics::analyze(helper_code),
+            "leptos-axum.extract-state",
+        );
+    }
+
+    #[test]
+    fn characterizes_axum_body_extractor_diagnostic_and_non_body_extractor_exemption() {
+        let code = r#"use axum::Json;
+
+#[server(Save)]
+pub async fn save() -> Result<(), ServerFnError> {
+    let Json(body): Json<SaveBody> = leptos_axum::extract().await?;
+    Ok(())
+}
+"#;
+        let output = LeptosDiagnostics::analyze(code);
+
+        assert_diagnostic(
+            &output,
+            "leptos-axum.extract-body",
+            Severity::Warning,
+            "Server functions should not use body-consuming Axum extractors with `extract()`.",
+            expected_span(code, "extract().await"),
+            Confidence::Medium,
+        );
+
+        let non_body_code = r#"use axum::extract::Path;
+
+#[server(Load)]
+pub async fn load() -> Result<(), ServerFnError> {
+    let Path(id): Path<String> = leptos_axum::extract().await?;
+    Ok(())
+}
+"#;
+        assert_no_diagnostic(
+            &LeptosDiagnostics::analyze(non_body_code),
+            "leptos-axum.extract-body",
+        );
+    }
+
+    #[test]
+    fn characterizes_deprecated_create_signal_diagnostic_and_signal_exemption() {
+        let code = "let (count, set_count) = create_signal(0);\n";
+        let output = LeptosDiagnostics::analyze(code);
+
+        assert_diagnostic(
+            &output,
+            "leptos.deprecated-create-signal",
+            Severity::Info,
+            "In Leptos 0.8+, prefer `signal()` over `create_signal()`.",
+            expected_span(code, "create_signal"),
+            Confidence::Medium,
+        );
+
+        assert_no_diagnostic(
+            &LeptosDiagnostics::analyze("let (count, set_count) = signal(0);\n"),
+            "leptos.deprecated-create-signal",
         );
     }
 }

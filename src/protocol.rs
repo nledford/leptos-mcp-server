@@ -953,14 +953,19 @@ mod tests {
 
         let structured = &result(&response)["structuredContent"];
         assert_eq!(structured["kind"], "diagnostics");
-        assert!(
-            structured["diagnostics"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|diagnostic| {
-                    diagnostic["rule_id"] == "leptos.missing-component-attribute"
-                })
-        );
+        assert!(structured["summary"]["error_count"].is_number());
+        assert!(structured["summary"]["warning_count"].is_number());
+        assert!(structured["summary"]["info_count"].is_number());
+
+        let diagnostics = structured["diagnostics"]
+            .as_array()
+            .expect("diagnostics should be an array");
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic["rule_id"] == "leptos.missing-component-attribute")
+            .expect("missing component attribute rule should be present");
+
+        assert_eq!(diagnostic["severity"], "warning");
+        assert_eq!(diagnostic["confidence"], "medium");
     }
 }
