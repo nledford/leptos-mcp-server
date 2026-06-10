@@ -18,21 +18,21 @@ Create execution-ready Tapestry plans for **P7 search/API lookup primitive subst
 Make search and API lookup predictable, explainable, and less noisy while preserving useful aliases.
 
 ### Deliverables
-- [ ] Characterization tests for current noisy/desired search and lookup cases before algorithm changes.
-- [ ] Query normalization/tokenization model with explicit minimum token handling.
-- [ ] Ranked docs search with exact ID/alias/title boosts, token intersection, and deterministic tie-breaking.
-- [ ] API lookup behavior that distinguishes exact symbol/alias, prefix, token, and summary matches.
-- [ ] Breaking-change notes for changed ambiguous/unknown outcomes.
+- Characterization tests for current noisy/desired search and lookup cases before algorithm changes.
+- Query normalization/tokenization model with explicit minimum token handling.
+- Ranked docs search with exact ID/alias/title boosts, token intersection, and deterministic tie-breaking.
+- API lookup behavior that distinguishes exact symbol/alias, prefix, token, and summary matches.
+- Breaking-change notes for changed ambiguous/unknown outcomes.
 
 ### Definition of Done
-- [ ] `cargo test docs::tests::search`-style tests pass.
-- [ ] `cargo test api::tests::lookup`-style tests pass.
-- [ ] Short/common queries produce deterministic ambiguous or unknown outcomes rather than arbitrary substring matches.
+- `cargo test docs::tests::search`-style tests pass.
+- `cargo test api::tests::lookup`-style tests pass.
+- Short/common queries produce deterministic ambiguous or unknown outcomes rather than arbitrary substring matches.
 
 ### Guardrails (Must NOT)
-- [ ] Must not remove declared aliases without catalog migration notes.
-- [ ] Must not add external search dependencies for this small static catalog unless current requirements expand.
-- [ ] Must not change docs content to game ranking; fix the algorithm/metadata instead.
+- Must not remove declared aliases without catalog migration notes.
+- Must not add external search dependencies for this small static catalog unless current requirements expand.
+- Must not change docs content to game ranking; fix the algorithm/metadata instead.
 
 ## TODOs
 
@@ -76,23 +76,26 @@ Make search and API lookup predictable, explainable, and less noisy while preser
 - [ ] Run `cargo test api`.
 - [ ] Run `cargo test tools`.
 - [ ] Run `cargo test protocol::tests::api_lookup_tool_returns_symbol_metadata`.
+- [ ] Run `cargo fmt -- --check`.
+- [ ] Run `cargo clippy --locked --all-targets -- -D warnings`.
 - [ ] Run `cargo test` before merging.
+- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 
 ## Breaking-Change Notes
-- [ ] Intentional breaking change: some vague substring queries may become `Ambiguous` or `Unknown`.
-- [ ] Exact section IDs, resource URIs, and declared aliases should remain stable.
+- Intentional breaking change: some vague substring queries may become `Ambiguous` or `Unknown`.
+- Exact section IDs, resource URIs, and declared aliases should remain stable.
 
 ## Migration/Docs Notes
-- [ ] Recommend clients use `list-sections` and exact `lookup-api` aliases, plus `crate` filters for API lookup stability.
+- Recommend clients use `list-sections` and exact `lookup-api` aliases, plus `crate` filters for API lookup stability.
 
 ## Risks
-- [ ] Ranking changes can surprise interactive users; mitigate with `why`/`matched_fields` clarity.
-- [ ] Overengineering search is possible; keep algorithm static-catalog appropriate.
+- Ranking changes can surprise interactive users; mitigate with `why`/`matched_fields` clarity.
+- Overengineering search is possible; keep algorithm static-catalog appropriate.
 
 ## Rollback / Stop Conditions
-- [ ] Stop if tests reveal ranking changes overlap catalog duplication issues; complete Plan 05 first.
-- [ ] Roll back broad fuzzy matching changes if they significantly reduce known useful results without replacement aliases.
+- Stop if tests reveal ranking changes overlap catalog duplication issues; complete Plan 05 first.
+- Roll back broad fuzzy matching changes if they significantly reduce known useful results without replacement aliases.
 
 ## Dependencies
-- [ ] Plan 05 is recommended first for catalog alias/metadata invariants.
-- [ ] Independent of transport/protocol Plan 04 except for protocol assertion updates.
+- Plan 05 is recommended first for catalog alias/metadata invariants.
+- Independent of transport/protocol Plan 04 except for protocol assertion updates.

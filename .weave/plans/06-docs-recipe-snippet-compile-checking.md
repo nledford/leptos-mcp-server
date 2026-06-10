@@ -18,20 +18,20 @@ Create execution-ready Tapestry plans for **P6 docs/recipe snippets not compile-
 Ensure snippets labeled compile-checkable are actually compiled, while illustrative snippets are intentionally marked and tested for classification.
 
 ### Deliverables
-- [ ] Inventory test for every Rust code block and recipe Rust file classification.
-- [ ] Snippet extraction harness or fixture crate for compile candidates.
-- [ ] Clear classification policy for `CompileCandidate`, `Illustrative`, and `Ignore`.
-- [ ] CI/local validation command documented for snippet checks.
+- Inventory test for every Rust code block and recipe Rust file classification.
+- Snippet extraction harness or fixture crate for compile candidates.
+- Clear classification policy for `CompileCandidate`, `Illustrative`, and `Ignore`.
+- CI/local validation command documented for snippet checks.
 
 ### Definition of Done
-- [ ] `cargo test snippet` or an equivalent named test command passes.
-- [ ] Every compile-candidate docs/recipe snippet is checked by a compile harness.
-- [ ] Every non-compiling snippet is explicitly classified as illustrative or ignore with rationale.
+- `cargo test snippet` or an equivalent named test command passes.
+- Every compile-candidate docs/recipe snippet is checked by a compile harness.
+- Every non-compiling snippet is explicitly classified as illustrative or ignore with rationale.
 
 ### Guardrails (Must NOT)
-- [ ] Must not force all partial teaching snippets to become standalone programs.
-- [ ] Must not add heavyweight dependencies unless necessary for reliable compile checks.
-- [ ] Must not weaken examples by deleting useful context solely to make them compile.
+- Must not force all partial teaching snippets to become standalone programs.
+- Must not add heavyweight dependencies unless necessary for reliable compile checks.
+- Must not weaken examples by deleting useful context solely to make them compile.
 
 ## TODOs
 
@@ -69,24 +69,27 @@ Ensure snippets labeled compile-checkable are actually compiled, while illustrat
 - [ ] Run `cargo test snippet` or the final snippet-specific test name.
 - [ ] Run `cargo test docs`.
 - [ ] Run `cargo test recipes`.
+- [ ] Run `cargo fmt -- --check`.
+- [ ] Run `cargo clippy --locked --all-targets -- -D warnings` if Rust source, tests, or fixture crates are changed.
 - [ ] Run `cargo test` before merging.
+- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 
 ## Breaking-Change Notes
-- [ ] Behavior-preserving unless snippets/output text changes.
-- [ ] Any changed snippet guidance that affects users should be listed in release notes.
+- Behavior-preserving unless snippets/output text changes.
+- Any changed snippet guidance that affects users should be listed in release notes.
 
 ## Migration/Docs Notes
-- [ ] Add contributor guidance for classifying snippets and running the validation command.
+- Add contributor guidance for classifying snippets and running the validation command.
 
 ## Risks
-- [ ] Compile harness complexity can grow quickly; begin with a minimal curated candidate set.
-- [ ] Leptos examples may require feature flags or generated app context; avoid overpromising full app compilation.
+- Compile harness complexity can grow quickly; begin with a minimal curated candidate set.
+- Leptos examples may require feature flags or generated app context; avoid overpromising full app compilation.
 
 ## Rollback / Stop Conditions
-- [ ] Stop if compile harness requires network access or full cargo-leptos app generation; reduce scope to extraction/classification tests first.
-- [ ] Roll back snippet text changes if they reduce instructional clarity.
+- Stop if compile harness requires network access or full cargo-leptos app generation; reduce scope to extraction/classification tests first.
+- Roll back snippet text changes if they reduce instructional clarity.
 
 ## Dependencies
-- [ ] Plan 01 may improve diagnostics used to triage snippet examples but is not required.
-- [ ] Plan 05 catalog consistency helps snippet classification coverage.
-- [ ] Plan 08 may define release checklist hooks for snippet validation.
+- Plan 01 may improve diagnostics used to triage snippet examples but is not required.
+- Plan 05 catalog consistency helps snippet classification coverage.
+- Plan 08 may define release checklist hooks for snippet validation.

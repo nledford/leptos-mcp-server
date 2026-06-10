@@ -18,20 +18,20 @@ Create execution-ready Tapestry plans for **P4 protocol capability/transport cou
 Create clean boundaries among transport framing, JSON-RPC protocol dispatch, and MCP domain capability catalogs.
 
 ### Deliverables
-- [ ] Characterization tests for initialize, tools/list, resources/list/read, prompts/list/get, and error behavior before refactor.
-- [ ] Extracted capability/catalog construction that can be tested without JSON-RPC line handling.
-- [ ] Extracted stdio transport/framing module with bounded read tests.
-- [ ] Refactored `McpServer` protocol dispatch that remains behavior-compatible except where prior plans intentionally changed behavior.
+- Characterization tests for initialize, tools/list, resources/list/read, prompts/list/get, and error behavior before refactor.
+- Extracted capability/catalog construction that can be tested without JSON-RPC line handling.
+- Extracted stdio transport/framing module with bounded read tests.
+- Refactored `McpServer` protocol dispatch that remains behavior-compatible except where prior plans intentionally changed behavior.
 
 ### Definition of Done
-- [ ] `cargo test protocol` passes.
-- [ ] `cargo test --test stdio` passes.
-- [ ] Public behavior for valid JSON-RPC requests is unchanged except intentional breaking changes from Plans 02/03 if already applied.
+- `cargo test protocol` passes.
+- `cargo test --test stdio` passes.
+- Public behavior for valid JSON-RPC requests is unchanged except intentional breaking changes from Plans 02/03 if already applied.
 
 ### Guardrails (Must NOT)
-- [ ] Must not combine this structural refactor with unrelated capability changes.
-- [ ] Must not alter tool names, resource URIs, or prompt names as part of the boundary refactor.
-- [ ] Must not make stdio async unless separately justified.
+- Must not combine this structural refactor with unrelated capability changes.
+- Must not alter tool names, resource URIs, or prompt names as part of the boundary refactor.
+- Must not make stdio async unless separately justified.
 
 ## TODOs
 
@@ -69,23 +69,26 @@ Create clean boundaries among transport framing, JSON-RPC protocol dispatch, and
 - [ ] Run `cargo test protocol`.
 - [ ] Run `cargo test --test stdio`.
 - [ ] Run `cargo test tools` if tool schema construction changes touch tool constants/output.
+- [ ] Run `cargo fmt -- --check`.
+- [ ] Run `cargo clippy --locked --all-targets -- -D warnings`.
 - [ ] Run `cargo test` before merging.
+- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 
 ## Breaking-Change Notes
-- [ ] This plan should be behavior-preserving unless Plans 02 or 03 have already introduced intentional changes.
+- This plan should be behavior-preserving unless Plans 02 or 03 have already introduced intentional changes.
 
 ## Migration/Docs Notes
-- [ ] No user-facing docs required for a pure internal boundary refactor.
+- No user-facing docs required for a pure internal boundary refactor.
 
 ## Risks
-- [ ] Moving private helpers can expose accidental public API; keep new modules private unless tests require crate-level access.
-- [ ] Snapshot-style JSON tests can become brittle; assert semantically important keys rather than full formatting.
+- Moving private helpers can expose accidental public API; keep new modules private unless tests require crate-level access.
+- Snapshot-style JSON tests can become brittle; assert semantically important keys rather than full formatting.
 
 ## Rollback / Stop Conditions
-- [ ] Stop if more than one behavior change appears during refactor; isolate it in a prerequisite plan.
-- [ ] Roll back structural moves if tests cannot prove wire compatibility.
+- Stop if more than one behavior change appears during refactor; isolate it in a prerequisite plan.
+- Roll back structural moves if tests cannot prove wire compatibility.
 
 ## Dependencies
-- [ ] Prefer Plan 02 first so transport extraction moves hardened code once.
-- [ ] Can run after Plan 03; keep prompt validation in prompt domain.
-- [ ] Plan 05 may reuse extracted catalog builders.
+- Prefer Plan 02 first so transport extraction moves hardened code once.
+- Can run after Plan 03; keep prompt validation in prompt domain.
+- Plan 05 may reuse extracted catalog builders.

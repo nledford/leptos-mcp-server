@@ -18,20 +18,20 @@ Create execution-ready Tapestry plans for **P3 prompt required arguments not enf
 Make prompt metadata executable by rejecting missing or blank required prompt arguments.
 
 ### Deliverables
-- [ ] Characterization/regression test showing missing required prompt arguments are currently accepted, then updated to require rejection.
-- [ ] Prompt validation API returning structured missing-argument errors.
-- [ ] Protocol-level `-32602 InvalidParams` response for missing required prompt arguments.
-- [ ] Tests for optional arguments still rendering as empty strings.
+- Characterization/regression test showing missing required prompt arguments are currently accepted, then updated to require rejection.
+- Prompt validation API returning structured missing-argument errors.
+- Protocol-level `-32602 InvalidParams` response for missing required prompt arguments.
+- Tests for optional arguments still rendering as empty strings.
 
 ### Definition of Done
-- [ ] `cargo test prompts` passes.
-- [ ] `cargo test protocol::tests::prompts_get_rejects_missing_required_arguments` passes.
-- [ ] `prompts/list` metadata and `prompts/get` behavior are consistent.
+- `cargo test prompts` passes.
+- `cargo test protocol::tests::prompts_get_rejects_missing_required_arguments` passes.
+- `prompts/list` metadata and `prompts/get` behavior are consistent.
 
 ### Guardrails (Must NOT)
-- [ ] Must not make optional prompt arguments required.
-- [ ] Must not silently trim meaningful user whitespace inside supplied prompt content beyond blank detection.
-- [ ] Must not change prompt names or template text unless required for validation messaging.
+- Must not make optional prompt arguments required.
+- Must not silently trim meaningful user whitespace inside supplied prompt content beyond blank detection.
+- Must not change prompt names or template text unless required for validation messaging.
 
 ## TODOs
 
@@ -65,22 +65,25 @@ Make prompt metadata executable by rejecting missing or blank required prompt ar
 - [ ] Run `cargo test protocol::tests::prompts_list_and_get_render_workflow_prompt`.
 - [ ] Run `cargo test protocol::tests::prompts_get_rejects_missing_required_arguments`.
 - [ ] Run `cargo test --test stdio` if prompt protocol snapshots are added there.
+- [ ] Run `cargo fmt -- --check`.
+- [ ] Run `cargo clippy --locked --all-targets -- -D warnings`.
 - [ ] Run `cargo test` before merging.
+- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 
 ## Breaking-Change Notes
-- [ ] Intentional breaking change: previously accepted missing required prompt arguments now return `-32602`.
+- Intentional breaking change: previously accepted missing required prompt arguments now return `-32602`.
 
 ## Migration/Docs Notes
-- [ ] Clients should read `prompts/list` and supply every argument where `required: true`.
+- Clients should read `prompts/list` and supply every argument where `required: true`.
 
 ## Risks
-- [ ] Existing clients may rely on partial prompts; mitigate with clear release note and actionable error messages.
-- [ ] Extra argument policy can expand scope; defer extra-argument rejection unless explicitly needed.
+- Existing clients may rely on partial prompts; mitigate with clear release note and actionable error messages.
+- Extra argument policy can expand scope; defer extra-argument rejection unless explicitly needed.
 
 ## Rollback / Stop Conditions
-- [ ] Stop if MCP prompt spec requires a different error shape; align with spec before coding.
-- [ ] Roll back by allowing missing required args only behind an explicit compatibility decision, not silently.
+- Stop if MCP prompt spec requires a different error shape; align with spec before coding.
+- Roll back by allowing missing required args only behind an explicit compatibility decision, not silently.
 
 ## Dependencies
-- [ ] Independent of other plans.
-- [ ] If Plan 04 introduces capability builders, keep prompt validation in `prompts.rs` rather than transport/capability code.
+- Independent of other plans.
+- If Plan 04 introduces capability builders, keep prompt validation in `prompts.rs` rather than transport/capability code.

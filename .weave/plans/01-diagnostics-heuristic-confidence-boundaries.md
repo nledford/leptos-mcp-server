@@ -18,20 +18,20 @@ Create execution-ready Tapestry plans for the technical debt roadmap item **P1 d
 Make diagnostic output honest about heuristic uncertainty while preserving useful guidance for agents.
 
 ### Deliverables
-- [ ] Characterization tests for current diagnostic rule IDs, messages, spans, severities, and confidence values.
-- [ ] Explicit rule metadata/invariants separating compiler-like errors from heuristic warnings/info.
-- [ ] Updated diagnostics rendering and structured output expectations for downgraded heuristic findings.
-- [ ] Documentation/migration note for intentional breaking changes in diagnostic severity/confidence.
+- Characterization tests for current diagnostic rule IDs, messages, spans, severities, and confidence values.
+- Explicit rule metadata/invariants separating compiler-like errors from heuristic warnings/info.
+- Updated diagnostics rendering and structured output expectations for downgraded heuristic findings.
+- Documentation/migration note for intentional breaking changes in diagnostic severity/confidence.
 
 ### Definition of Done
-- [ ] `cargo test diagnostics` passes.
-- [ ] `cargo test protocol::tests::diagnostics_tool_returns_structured_content` passes.
-- [ ] A reviewer can identify which rules are heuristic and why they are not reported as high-confidence errors.
+- `cargo test diagnostics` passes.
+- `cargo test protocol::tests::diagnostics_tool_returns_structured_content` passes.
+- A reviewer can identify which rules are heuristic and why they are not reported as high-confidence errors.
 
 ### Guardrails (Must NOT)
-- [ ] Must not introduce a Rust parser dependency unless the implementation explicitly scopes and justifies it.
-- [ ] Must not silently remove existing rule IDs without a breaking-change note.
-- [ ] Must not claim compile correctness from text-only heuristics.
+- Must not introduce a Rust parser dependency unless the implementation explicitly scopes and justifies it.
+- Must not silently remove existing rule IDs without a breaking-change note.
+- Must not claim compile correctness from text-only heuristics.
 
 ## TODOs
 
@@ -64,23 +64,26 @@ Make diagnostic output honest about heuristic uncertainty while preserving usefu
 - [ ] Run `cargo test diagnostics`.
 - [ ] Run `cargo test protocol`.
 - [ ] Run `cargo test tools` if tool rendering assertions are touched.
+- [ ] Run `cargo fmt -- --check`.
+- [ ] Run `cargo clippy --locked --all-targets -- -D warnings` if Rust source or tests are changed.
 - [ ] Run `cargo test` before merging.
+- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 - [ ] No source behavior unrelated to diagnostics changes.
 
 ## Breaking-Change Notes
-- [ ] Diagnostic severity/confidence changes are intentional breaking changes for consumers that fail builds on `error` severity.
+- Diagnostic severity/confidence changes are intentional breaking changes for consumers that fail builds on `error` severity.
 
 ## Migration/Docs Notes
-- [ ] Tell consumers to key automation on `rule_id` plus documented confidence semantics, not severity alone.
+- Tell consumers to key automation on `rule_id` plus documented confidence semantics, not severity alone.
 
 ## Risks
-- [ ] Downgrading too much may reduce usefulness; mitigate with rule-specific tests that preserve actionable text.
-- [ ] Adding metadata may feel heavier than current code; keep it local to diagnostics unless other plans need it.
+- Downgrading too much may reduce usefulness; mitigate with rule-specific tests that preserve actionable text.
+- Adding metadata may feel heavier than current code; keep it local to diagnostics unless other plans need it.
 
 ## Rollback / Stop Conditions
-- [ ] Stop if characterization tests reveal current diagnostics are relied on as protocol compatibility guarantees; split compatibility discussion into a separate release decision.
-- [ ] Roll back by restoring previous severity/confidence values while keeping characterization tests.
+- Stop if characterization tests reveal current diagnostics are relied on as protocol compatibility guarantees; split compatibility discussion into a separate release decision.
+- Roll back by restoring previous severity/confidence values while keeping characterization tests.
 
 ## Dependencies
-- [ ] Independent of all other plans.
-- [ ] Prefer completing before Plan 06 if doc snippet diagnostics are used in compile-check triage.
+- Independent of all other plans.
+- Prefer completing before Plan 06 if doc snippet diagnostics are used in compile-check triage.

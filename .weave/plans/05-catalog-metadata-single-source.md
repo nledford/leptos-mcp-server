@@ -18,20 +18,20 @@ Create execution-ready Tapestry plans for **P5 catalog metadata duplication**.
 Make catalog metadata coherent, validated, and maintainable without ID-based duplication drift.
 
 ### Deliverables
-- [ ] Catalog consistency tests before refactor.
-- [ ] Single-source representation or generated view that prevents missing metadata for a section.
-- [ ] Validation for unique section IDs, aliases, resource URIs, related section IDs, and metadata coverage.
-- [ ] Clear ownership of version constants and docs URLs.
+- Catalog consistency tests before refactor.
+- Single-source representation or generated view that prevents missing metadata for a section.
+- Validation for unique section IDs, aliases, resource URIs, related section IDs, and metadata coverage.
+- Clear ownership of version constants and docs URLs.
 
 ### Definition of Done
-- [ ] `cargo test docs` passes.
-- [ ] `cargo test tools::tests::list_sections`-style tests pass or equivalent coverage exists.
-- [ ] Adding a section in one place cannot compile or cannot pass tests without metadata.
+- `cargo test docs` passes.
+- `cargo test tools::tests::list_sections`-style tests pass or equivalent coverage exists.
+- Adding a section in one place cannot compile or cannot pass tests without metadata.
 
 ### Guardrails (Must NOT)
-- [ ] Must not change public section IDs/resource URIs unless explicitly marked breaking.
-- [ ] Must not hide catalog errors behind runtime panics where tests can catch them.
-- [ ] Must not mix broad content rewrites into metadata normalization.
+- Must not change public section IDs/resource URIs unless explicitly marked breaking.
+- Must not hide catalog errors behind runtime panics where tests can catch them.
+- Must not mix broad content rewrites into metadata normalization.
 
 ## TODOs
 
@@ -69,23 +69,26 @@ Make catalog metadata coherent, validated, and maintainable without ID-based dup
 - [ ] Run `cargo test docs`.
 - [ ] Run `cargo test tools`.
 - [ ] Run `cargo test protocol::tests::resources_list_and_read_expose_documentation_sections`.
+- [ ] Run `cargo fmt -- --check`.
+- [ ] Run `cargo clippy --locked --all-targets -- -D warnings`.
 - [ ] Run `cargo test` before merging.
+- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 
 ## Breaking-Change Notes
-- [ ] Intended as behavior-preserving for public catalog IDs.
-- [ ] Removing or changing aliases/resource URIs is breaking and must be called out if it happens.
+- Intended as behavior-preserving for public catalog IDs.
+- Removing or changing aliases/resource URIs is breaking and must be called out if it happens.
 
 ## Migration/Docs Notes
-- [ ] No docs needed if behavior-preserving; otherwise list changed aliases and replacement IDs.
+- No docs needed if behavior-preserving; otherwise list changed aliases and replacement IDs.
 
 ## Risks
-- [ ] Large static table edits are error-prone; rely on invariant tests and small commits.
-- [ ] Centralizing version URLs may expose existing `latest` vs pinned URL policy drift; coordinate with Plan 08.
+- Large static table edits are error-prone; rely on invariant tests and small commits.
+- Centralizing version URLs may expose existing `latest` vs pinned URL policy drift; coordinate with Plan 08.
 
 ## Rollback / Stop Conditions
-- [ ] Stop if refactor changes search ranking unexpectedly; either preserve old order or split ranking changes into Plan 07.
-- [ ] Roll back single-source representation if it worsens readability; keep invariant tests regardless.
+- Stop if refactor changes search ranking unexpectedly; either preserve old order or split ranking changes into Plan 07.
+- Roll back single-source representation if it worsens readability; keep invariant tests regardless.
 
 ## Dependencies
-- [ ] Plan 04 can make catalog builders cleaner but is not required.
-- [ ] Coordinate with Plan 08 for version/release policy constants.
+- Plan 04 can make catalog builders cleaner but is not required.
+- Coordinate with Plan 08 for version/release policy constants.

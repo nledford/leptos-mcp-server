@@ -18,24 +18,24 @@ Create execution-ready Tapestry plans for **P2 oversized unterminated stdin DoS*
 Guarantee bounded memory and bounded response behavior for oversized, malformed, or unterminated stdio frames.
 
 ### Deliverables
-- [ ] Regression test for oversized unterminated stdin input before remediation.
-- [ ] Hardened line reader behavior that returns an error response without waiting for newline once the byte limit is exceeded.
-- [ ] Instrumented reader test proving the byte-limit branch returns immediately at `MAX_JSON_RPC_LINE_BYTES + 1` without discard or extra `fill_buf` reads.
-- [ ] Process-level stdio test proving a live client receives a JSON-RPC error before newline, EOF, or stdin close.
-- [ ] Security review note for Warp covering limits, error semantics, and residual risks.
+- Regression test for oversized unterminated stdin input before remediation.
+- Hardened line reader behavior that returns an error response without waiting for newline once the byte limit is exceeded.
+- Instrumented reader test proving the byte-limit branch returns immediately at `MAX_JSON_RPC_LINE_BYTES + 1` without discard or extra `fill_buf` reads.
+- Process-level stdio test proving a live client receives a JSON-RPC error before newline, EOF, or stdin close.
+- Security review note for Warp covering limits, error semantics, and residual risks.
 
 ### Definition of Done
-- [ ] `cargo test stdio_process_rejects_oversized_unterminated_live_input_before_stdin_close` passes with a bounded timeout.
-- [ ] `cargo test protocol::tests::oversized_unterminated_stdin_line_is_rejected` passes.
-- [ ] `cargo test protocol::tests::read_limited_line_stops_at_hard_cap_without_discard` passes and proves no `discard_until_newline` call or post-cap `fill_buf` read occurs.
-- [ ] Oversized unterminated live input receives a JSON-RPC `-32600` response before newline/EOF/stdin close.
-- [ ] Oversized input never allocates more than `MAX_JSON_RPC_LINE_BYTES` plus bounded overhead.
-- [ ] Memory remains bounded without post-limit discard buffering for malicious clients that keep stdin open.
+- `cargo test stdio_process_rejects_oversized_unterminated_live_input_before_stdin_close` passes with a bounded timeout.
+- `cargo test protocol::tests::oversized_unterminated_stdin_line_is_rejected` passes.
+- `cargo test protocol::tests::read_limited_line_stops_at_hard_cap_without_discard` passes and proves no `discard_until_newline` call or post-cap `fill_buf` read occurs.
+- Oversized unterminated live input receives a JSON-RPC `-32600` response before newline/EOF/stdin close.
+- Oversized input never allocates more than `MAX_JSON_RPC_LINE_BYTES` plus bounded overhead.
+- Memory remains bounded without post-limit discard buffering for malicious clients that keep stdin open.
 
 ### Guardrails (Must NOT)
-- [ ] Must not raise `MAX_JSON_RPC_LINE_BYTES` to hide the issue.
-- [ ] Must not buffer an entire malicious line while searching for newline.
-- [ ] Must not emit non-JSON text on stdout.
+- Must not raise `MAX_JSON_RPC_LINE_BYTES` to hide the issue.
+- Must not buffer an entire malicious line while searching for newline.
+- Must not emit non-JSON text on stdout.
 
 ## TODOs
 
@@ -75,23 +75,26 @@ Guarantee bounded memory and bounded response behavior for oversized, malformed,
 - [ ] Run `cargo test protocol::tests::read_limited_line_stops_at_hard_cap_without_discard`.
 - [ ] Run `cargo test stdio_process_rejects_oversized_unterminated_live_input_before_stdin_close`.
 - [ ] Run `cargo test --test stdio`.
+- [ ] Run `cargo fmt -- --check`.
+- [ ] Run `cargo clippy --locked --all-targets -- -D warnings`.
 - [ ] Run `cargo test` before merging.
+- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 
 ## Breaking-Change Notes
-- [ ] Behavior-preserving for valid clients.
-- [ ] Invalid clients sending oversized unterminated frames may receive earlier rejection than before.
+- Behavior-preserving for valid clients.
+- Invalid clients sending oversized unterminated frames may receive earlier rejection than before.
 
 ## Migration/Docs Notes
-- [ ] Document the exact maximum frame size and newline-delimited framing expectation if user-facing docs are updated.
+- Document the exact maximum frame size and newline-delimited framing expectation if user-facing docs are updated.
 
 ## Risks
-- [ ] A naive discard loop can still block on live malicious clients; prefer returning after bounded consumption instead of waiting for delimiter.
-- [ ] Integration tests can hang if stdin is not closed; use child stdin drop and reasonable test structure.
+- A naive discard loop can still block on live malicious clients; prefer returning after bounded consumption instead of waiting for delimiter.
+- Integration tests can hang if cleanup is wrong; keep child stdin open until the expected `-32600` response is observed or the bounded timeout fires, then close stdin only during cleanup.
 
 ## Rollback / Stop Conditions
-- [ ] Stop if a fix requires async stdio/timeouts; create a separate transport plan rather than mixing runtimes.
-- [ ] Roll back to prior reader only if bounded-memory tests remain in place and issue is escalated.
+- Stop if a fix requires async stdio/timeouts; create a separate transport plan rather than mixing runtimes.
+- Roll back to prior reader only if bounded-memory tests remain in place and issue is escalated.
 
 ## Dependencies
-- [ ] Independent of other plans.
-- [ ] Should be prioritized before release and before Plan 04 transport abstraction if both are active.
+- Independent of other plans.
+- Should be prioritized before release and before Plan 04 transport abstraction if both are active.
