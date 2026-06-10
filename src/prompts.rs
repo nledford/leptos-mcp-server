@@ -2,6 +2,7 @@
 
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct PromptArgument {
@@ -25,6 +26,45 @@ pub enum PromptLookupError {
     Empty,
     Unknown { name: String },
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PromptRenderError {
+    MissingRequiredArguments {
+        prompt_name: &'static str,
+        names: Vec<&'static str>,
+    },
+    BlankRequiredArgument {
+        prompt_name: &'static str,
+        name: &'static str,
+    },
+    UnknownArgument {
+        prompt_name: &'static str,
+        name: String,
+    },
+}
+
+impl fmt::Display for PromptRenderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PromptRenderError::MissingRequiredArguments { prompt_name, names } => {
+                write!(
+                    f,
+                    "prompt `{prompt_name}` is missing required argument(s): {}",
+                    names.join(", ")
+                )
+            }
+            PromptRenderError::BlankRequiredArgument { prompt_name, name } => write!(
+                f,
+                "prompt `{prompt_name}` has blank required argument: {name}"
+            ),
+            PromptRenderError::UnknownArgument { prompt_name, name } => {
+                write!(f, "prompt `{prompt_name}` has unknown argument: {name}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PromptRenderError {}
 
 static PROMPTS: &[PromptTemplate] = &[
     PromptTemplate {
@@ -155,6 +195,64 @@ pub fn render_prompt(template: &PromptTemplate, arguments: &BTreeMap<String, Str
     rendered
 }
 
+pub fn validate_prompt_arguments(
+    template: &PromptTemplate,
+    arguments: &BTreeMap<String, String>,
+) -> Result<(), PromptRenderError> {
+    for name in arguments.keys() {
+        if !template
+            .arguments
+            .iter()
+            .any(|argument| argument.name == name)
+        {
+            return Err(PromptRenderError::UnknownArgument {
+                prompt_name: template.name,
+                name: name.clone(),
+            });
+        }
+    }
+
+    let missing_names: Vec<_> = template
+        .arguments
+        .iter()
+        .filter(|argument| argument.required && !arguments.contains_key(argument.name))
+        .map(|argument| argument.name)
+        .collect();
+    if !missing_names.is_empty() {
+        return Err(PromptRenderError::MissingRequiredArguments {
+            prompt_name: template.name,
+            names: missing_names,
+        });
+    }
+
+    for argument in template.arguments {
+        if !argument.required {
+            continue;
+        }
+
+        let value = arguments
+            .get(argument.name)
+            .expect("missing required arguments were checked first");
+
+        if value.trim().is_empty() {
+            return Err(PromptRenderError::BlankRequiredArgument {
+                prompt_name: template.name,
+                name: argument.name,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+pub fn render_prompt_checked(
+    template: &PromptTemplate,
+    arguments: &BTreeMap<String, String>,
+) -> Result<String, PromptRenderError> {
+    validate_prompt_arguments(template, arguments)?;
+    Ok(render_prompt(template, arguments))
+}
+
 fn normalize(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace([' ', '_'], "-")
 }
@@ -173,6 +271,7 @@ mod tests {
 
         assert!(rendered.contains("WASM 404"));
         assert!(rendered.contains("feature flags"));
+        assert!(rendered.contains("Environment: ."));
     }
 
     #[test]
@@ -187,6 +286,96 @@ mod tests {
         assert!(rendered.contains("SQLite"));
         assert!(rendered.contains("bind parameters"));
         assert!(rendered.contains("sqlx::query!"));
+    }
+
+    #[test]
+    fn renders_prompt_when_required_argument_is_present() {
+        let prompt = get_prompt("add-server-function").expect("prompt should exist");
+        let mut arguments = BTreeMap::new();
+        arguments.insert("operation".to_string(), "create a user".to_string());
+
+        let rendered =
+            render_prompt_checked(prompt, &arguments).expect("arguments should validate");
+
+        assert!(rendered.contains("create a user"));
+        assert!(rendered.contains("Data context: ."));
+    }
+
+    #[test]
+    fn rejects_missing_required_prompt_argument() {
+        let prompt = get_prompt("add-server-function").expect("prompt should exist");
+        let arguments = BTreeMap::new();
+
+        let error =
+            validate_prompt_arguments(prompt, &arguments).expect_err("missing required arg");
+
+        assert_eq!(
+            error,
+            PromptRenderError::MissingRequiredArguments {
+                prompt_name: "add-server-function",
+                names: vec!["operation"]
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "prompt `add-server-function` is missing required argument(s): operation"
+        );
+    }
+
+    #[test]
+    fn rejects_blank_required_prompt_argument() {
+        let prompt = get_prompt("add-server-function").expect("prompt should exist");
+        let mut arguments = BTreeMap::new();
+        arguments.insert("operation".to_string(), " \t\n ".to_string());
+
+        let error = validate_prompt_arguments(prompt, &arguments).expect_err("blank required arg");
+
+        assert_eq!(
+            error,
+            PromptRenderError::BlankRequiredArgument {
+                prompt_name: "add-server-function",
+                name: "operation"
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "prompt `add-server-function` has blank required argument: operation"
+        );
+    }
+
+    #[test]
+    fn renders_prompt_when_optional_argument_is_missing() {
+        let prompt = get_prompt("review-sql-access").expect("prompt should exist");
+        let mut arguments = BTreeMap::new();
+        arguments.insert("code".to_string(), "sqlx::query!(\"SELECT 1\")".to_string());
+
+        let rendered =
+            render_prompt_checked(prompt, &arguments).expect("arguments should validate");
+
+        assert!(rendered.contains("Database backend: ."));
+        assert!(rendered.contains("sqlx::query!"));
+    }
+
+    #[test]
+    fn rejects_unknown_extra_prompt_argument() {
+        let prompt = get_prompt("debug-hydration").expect("prompt should exist");
+        let mut arguments = BTreeMap::new();
+        arguments.insert("symptom".to_string(), "WASM 404".to_string());
+        arguments.insert("extra".to_string(), "ignored?".to_string());
+
+        let error = validate_prompt_arguments(prompt, &arguments).expect_err("unknown extra arg");
+
+        assert_eq!(
+            error,
+            PromptRenderError::UnknownArgument {
+                prompt_name: "debug-hydration",
+                name: "extra".to_string()
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "prompt `debug-hydration` has unknown argument: extra"
+        );
     }
 
     #[test]

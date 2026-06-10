@@ -30,6 +30,16 @@ request is opened.
   documented as compiler-equivalent. Currently, high-confidence errors are
   limited to `leptos.server-fn-async` and `leptos.server-fn-generic`.
 
+### Breaking prompt behavior
+
+- `prompts/get` now enforces required prompt arguments and returns `-32602` when
+  required values are missing or blank. Affected required arguments are
+  `add-server-function.operation`, `review-sql-access.code`,
+  `debug-hydration.symptom`, and `review-axum-integration.code`.
+- Clients must send non-blank values for required prompt metadata. Unknown extra
+  prompt arguments are also rejected; optional prompt arguments continue to render
+  as empty strings when omitted.
+
 ## [0.1.0](https://github.com/nledford/leptos-mcp-server/releases/tag/v0.1.0) - 2026-06-10
 
 ### Other

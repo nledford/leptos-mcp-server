@@ -459,7 +459,8 @@ impl McpServer {
             .map_err(|error| ProtocolError::InvalidParams(error.to_string()))?;
         let prompt = prompts::get_prompt(&params.name)
             .map_err(|error| ProtocolError::InvalidParams(prompt_error_message(error)))?;
-        let text = prompts::render_prompt(prompt, &params.arguments);
+        let text = prompts::render_prompt_checked(prompt, &params.arguments)
+            .map_err(|error| ProtocolError::InvalidParams(error.to_string()))?;
 
         Ok(json!({
             "description": prompt.description,
@@ -928,6 +929,46 @@ mod tests {
                 .as_str()
                 .expect("prompt text should exist")
                 .contains("bind parameters")
+        );
+    }
+
+    #[tokio::test]
+    async fn prompts_get_allows_missing_optional_arguments() {
+        let server = McpServer::new();
+        let prompt = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"debug-hydration","arguments":{"symptom":"WASM 404"}}}"#,
+            )
+            .await
+            .expect("prompts/get should receive a response");
+
+        let text = result(&prompt)["messages"][0]["content"]["text"]
+            .as_str()
+            .expect("prompt text should exist");
+        assert!(text.contains("WASM 404"));
+        assert!(text.contains("Environment: ."));
+        assert!(prompt.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn prompts_get_rejects_missing_required_arguments() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"review-sql-access","arguments":{"backend":"SQLite"}}}"#,
+            )
+            .await
+            .expect("prompts/get should receive a response");
+
+        assert_eq!(error_code(&response), -32602);
+        assert!(response.result.is_none());
+        assert!(
+            response
+                .error
+                .as_ref()
+                .expect("expected error")
+                .message
+                .contains("code")
         );
     }
 
