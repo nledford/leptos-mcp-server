@@ -148,12 +148,7 @@ impl McpServer {
             let line = match read_limited_line(&mut reader, MAX_JSON_RPC_LINE_BYTES) {
                 Ok(Some(LineRead::Line(line))) => line,
                 Ok(Some(LineRead::Oversized)) => {
-                    let response = JsonRpcResponse::error(
-                        Value::Null,
-                        ProtocolError::InvalidRequest(format!(
-                            "JSON-RPC request line must be at most {MAX_JSON_RPC_LINE_BYTES} bytes"
-                        )),
-                    );
+                    let response = oversized_line_error_response();
                     let response_json = serde_json::to_string(&response)?;
                     writeln!(stdout, "{response_json}")?;
                     stdout.flush()?;
@@ -178,12 +173,7 @@ impl McpServer {
 
     pub async fn handle_line(&self, line: &str) -> Option<JsonRpcResponse> {
         if line.len() > MAX_JSON_RPC_LINE_BYTES {
-            return Some(JsonRpcResponse::error(
-                Value::Null,
-                ProtocolError::InvalidRequest(format!(
-                    "JSON-RPC request line must be at most {MAX_JSON_RPC_LINE_BYTES} bytes"
-                )),
-            ));
+            return Some(oversized_line_error_response());
         }
 
         if line.trim().is_empty() {
@@ -576,6 +566,18 @@ fn empty_arguments() -> Value {
     json!({})
 }
 
+fn oversized_line_error_response() -> JsonRpcResponse {
+    // The read path rejects oversized input before a complete JSON-RPC frame is available.
+    // Any apparent `id` inside that partial frame is untrusted and may not have been read, so
+    // JSON-RPC requires the error response to use a null id.
+    JsonRpcResponse::error(
+        Value::Null,
+        ProtocolError::InvalidRequest(format!(
+            "JSON-RPC request line must be at most {MAX_JSON_RPC_LINE_BYTES} bytes"
+        )),
+    )
+}
+
 fn read_limited_line<R: BufRead>(reader: &mut R, max_bytes: usize) -> io::Result<Option<LineRead>> {
     let mut bytes = Vec::new();
 
@@ -592,7 +594,8 @@ fn read_limited_line<R: BufRead>(reader: &mut R, max_bytes: usize) -> io::Result
         if let Some(newline_index) = available.iter().position(|byte| *byte == b'\n') {
             let take = newline_index + 1;
             if bytes.len() + newline_index > max_bytes {
-                reader.consume(take);
+                let take_until_oversized = max_bytes.saturating_sub(bytes.len()) + 1;
+                reader.consume(take_until_oversized);
                 return Ok(Some(LineRead::Oversized));
             }
             bytes.extend_from_slice(&available[..take]);
@@ -602,29 +605,12 @@ fn read_limited_line<R: BufRead>(reader: &mut R, max_bytes: usize) -> io::Result
 
         let take = available.len();
         if bytes.len() + take > max_bytes {
-            reader.consume(take);
-            discard_until_newline(reader)?;
+            let take_until_oversized = max_bytes.saturating_sub(bytes.len()) + 1;
+            reader.consume(take_until_oversized);
             return Ok(Some(LineRead::Oversized));
         }
 
         bytes.extend_from_slice(available);
-        reader.consume(take);
-    }
-}
-
-fn discard_until_newline<R: BufRead>(reader: &mut R) -> io::Result<()> {
-    loop {
-        let available = reader.fill_buf()?;
-        if available.is_empty() {
-            return Ok(());
-        }
-
-        if let Some(newline_index) = available.iter().position(|byte| *byte == b'\n') {
-            reader.consume(newline_index + 1);
-            return Ok(());
-        }
-
-        let take = available.len();
         reader.consume(take);
     }
 }
@@ -644,9 +630,64 @@ fn decode_line(mut bytes: Vec<u8>) -> String {
 mod tests {
     use super::*;
     use crate::tools::MAX_DIAGNOSTIC_CODE_BYTES;
+    use std::cmp;
+    use std::io::Read;
+
+    struct InstrumentedReader {
+        input: Vec<u8>,
+        position: usize,
+        chunks: Vec<usize>,
+        fill_buf_calls: Vec<(usize, usize)>,
+        consume_calls: Vec<usize>,
+    }
+
+    impl InstrumentedReader {
+        fn new(input: Vec<u8>, chunks: Vec<usize>) -> Self {
+            Self {
+                input,
+                position: 0,
+                chunks,
+                fill_buf_calls: Vec::new(),
+                consume_calls: Vec::new(),
+            }
+        }
+    }
+
+    impl Read for InstrumentedReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let available = self.fill_buf()?;
+            let take = cmp::min(available.len(), buf.len());
+            buf[..take].copy_from_slice(&available[..take]);
+            self.consume(take);
+            Ok(take)
+        }
+    }
+
+    impl BufRead for InstrumentedReader {
+        fn fill_buf(&mut self) -> io::Result<&[u8]> {
+            let chunk = self
+                .chunks
+                .get(self.fill_buf_calls.len())
+                .copied()
+                .unwrap_or(usize::MAX);
+            let end = cmp::min(self.input.len(), self.position.saturating_add(chunk));
+            self.fill_buf_calls
+                .push((self.position, end - self.position));
+            Ok(&self.input[self.position..end])
+        }
+
+        fn consume(&mut self, amt: usize) {
+            self.consume_calls.push(amt);
+            self.position += amt;
+        }
+    }
 
     fn error_code(response: &JsonRpcResponse) -> i32 {
         response.error.as_ref().expect("expected error").code
+    }
+
+    fn response_id(response: &JsonRpcResponse) -> &Value {
+        &response.id
     }
 
     fn result(response: &JsonRpcResponse) -> &Value {
@@ -903,6 +944,29 @@ mod tests {
             .expect("oversized requests should receive a response");
 
         assert_eq!(error_code(&response), -32600);
+        assert_eq!(response_id(&response), &Value::Null);
+    }
+
+    #[test]
+    fn oversized_read_path_error_is_invalid_request_with_null_id() {
+        let input = format!(
+            r#"{{"jsonrpc":"2.0","id":"client-id","method":"tools/list","padding":"{}"}}
+"#,
+            "x".repeat(MAX_JSON_RPC_LINE_BYTES)
+        );
+        let mut reader = BufReader::new(input.as_bytes());
+        let line = read_limited_line(&mut reader, MAX_JSON_RPC_LINE_BYTES)
+            .expect("line reader should succeed")
+            .expect("line should be present");
+
+        match line {
+            LineRead::Line(_) => panic!("oversized read-path frame should be rejected"),
+            LineRead::Oversized => {}
+        }
+
+        let response = oversized_line_error_response();
+        assert_eq!(error_code(&response), -32600);
+        assert_eq!(response_id(&response), &Value::Null);
     }
 
     #[test]
@@ -917,6 +981,126 @@ mod tests {
             LineRead::Line(line) => assert_eq!(line.len(), MAX_JSON_RPC_LINE_BYTES),
             LineRead::Oversized => panic!("line at the exact limit should be accepted"),
         }
+    }
+
+    #[test]
+    fn read_limited_line_returns_newline_terminated_frames_in_order() {
+        let mut reader = BufReader::new(b"abc\ndef\n".as_slice());
+
+        let first = read_limited_line(&mut reader, 10)
+            .expect("line reader should succeed")
+            .expect("first line should be present");
+        let second = read_limited_line(&mut reader, 10)
+            .expect("line reader should succeed")
+            .expect("second line should be present");
+
+        match first {
+            LineRead::Line(line) => assert_eq!(line, "abc"),
+            LineRead::Oversized => panic!("first line should fit"),
+        }
+        match second {
+            LineRead::Line(line) => assert_eq!(line, "def"),
+            LineRead::Oversized => panic!("second line should fit"),
+        }
+    }
+
+    #[test]
+    fn read_limited_line_returns_final_eof_frame_then_none() {
+        let mut reader = BufReader::new(b"abc".as_slice());
+
+        let line = read_limited_line(&mut reader, 10)
+            .expect("line reader should succeed")
+            .expect("line should be present");
+        let eof = read_limited_line(&mut reader, 10).expect("line reader should succeed");
+
+        match line {
+            LineRead::Line(line) => assert_eq!(line, "abc"),
+            LineRead::Oversized => panic!("line should fit"),
+        }
+        assert!(eof.is_none());
+    }
+
+    #[test]
+    fn exact_limit_stdin_line_without_newline_is_accepted_at_eof() {
+        let mut reader = BufReader::new(b"abc".as_slice());
+        let line = read_limited_line(&mut reader, 3)
+            .expect("line reader should succeed")
+            .expect("line should be present");
+
+        match line {
+            LineRead::Line(line) => assert_eq!(line, "abc"),
+            LineRead::Oversized => panic!("line at exact limit should be accepted"),
+        }
+    }
+
+    #[test]
+    fn limit_plus_one_line_with_newline_consumes_only_violation_byte() {
+        let input = b"abcd\nnext\n".to_vec();
+        let mut reader = InstrumentedReader::new(input, vec![10]);
+
+        let line = read_limited_line(&mut reader, 3)
+            .expect("line reader should succeed")
+            .expect("line should be present");
+
+        match line {
+            LineRead::Line(_) => panic!("limit-plus-one line should be rejected"),
+            LineRead::Oversized => {}
+        }
+        assert_eq!(reader.consume_calls, vec![4]);
+        assert_eq!(reader.position, 4);
+    }
+
+    #[test]
+    fn invalid_utf8_stdin_line_is_lossily_decoded() {
+        let mut reader = BufReader::new([0xff, b'\n'].as_slice());
+        let line = read_limited_line(&mut reader, 10)
+            .expect("line reader should succeed")
+            .expect("line should be present");
+
+        match line {
+            LineRead::Line(line) => assert_eq!(line, "�"),
+            LineRead::Oversized => panic!("invalid UTF-8 within the limit should be decoded"),
+        }
+    }
+
+    #[test]
+    fn oversized_unterminated_stdin_line_is_rejected() {
+        let input = "x".repeat(MAX_JSON_RPC_LINE_BYTES + 1);
+        let mut reader = BufReader::new(input.as_bytes());
+        let line = read_limited_line(&mut reader, MAX_JSON_RPC_LINE_BYTES)
+            .expect("line reader should succeed")
+            .expect("line should be present");
+
+        match line {
+            LineRead::Line(_) => panic!("unterminated oversized line should be rejected"),
+            LineRead::Oversized => {}
+        }
+    }
+
+    #[test]
+    fn read_limited_line_stops_at_hard_cap_without_discard() {
+        let input = vec![b'x'; MAX_JSON_RPC_LINE_BYTES + 1];
+        let mut reader = InstrumentedReader::new(input, vec![MAX_JSON_RPC_LINE_BYTES, 1]);
+
+        let line = read_limited_line(&mut reader, MAX_JSON_RPC_LINE_BYTES)
+            .expect("line reader should succeed")
+            .expect("line should be present");
+
+        match line {
+            LineRead::Line(_) => panic!("unterminated oversized line should be rejected"),
+            LineRead::Oversized => {}
+        }
+        assert_eq!(
+            reader.fill_buf_calls,
+            vec![(0, MAX_JSON_RPC_LINE_BYTES), (MAX_JSON_RPC_LINE_BYTES, 1)],
+            "reader should stop immediately after observing byte MAX_JSON_RPC_LINE_BYTES + 1"
+        );
+        assert_eq!(
+            reader.consume_calls,
+            vec![MAX_JSON_RPC_LINE_BYTES, 1],
+            "reader should consume only through the hard-cap violation byte"
+        );
+        assert_eq!(reader.position, MAX_JSON_RPC_LINE_BYTES + 1);
     }
 
     #[tokio::test]

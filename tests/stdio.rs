@@ -1,6 +1,10 @@
 use serde_json::Value;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Output, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
+
+const MAX_JSON_RPC_LINE_BYTES: usize = 1024 * 1024;
 
 fn run_server(input: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_leptos-mcp-server"))
@@ -60,6 +64,77 @@ fn stdio_process_returns_parse_errors_as_json() {
     let responses = stdout_json_lines(&output);
     assert_eq!(responses.len(), 1);
     assert_eq!(responses[0]["error"]["code"], -32700);
+}
+
+#[test]
+fn stdio_process_rejects_oversized_unterminated_live_input_before_stdin_close() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_leptos-mcp-server"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("server binary should start");
+
+    let mut stdin = child.stdin.take().expect("stdin should be piped");
+    let stdout = child.stdout.take().expect("stdout should be piped");
+    let (stdout_tx, stdout_rx) = mpsc::channel();
+
+    let stdout_reader = std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if stdout_tx.send(Ok(line)).is_err() {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    let _ = stdout_tx.send(Err(format!("failed to read stdout: {error}")));
+                    break;
+                }
+            }
+        }
+    });
+
+    let oversized_unterminated_input = "x".repeat(MAX_JSON_RPC_LINE_BYTES + 1);
+    stdin
+        .write_all(oversized_unterminated_input.as_bytes())
+        .expect("oversized request should write to stdin");
+    stdin.flush().expect("oversized request should flush");
+
+    let line = match stdout_rx.recv_timeout(Duration::from_secs(5)) {
+        Ok(Ok(line)) => line,
+        Ok(Err(error)) => panic!("{error}"),
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            let _ = child.kill();
+            panic!("timed out waiting for oversized-input JSON-RPC response before closing stdin");
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => panic!("stdout reader disconnected"),
+    };
+
+    let response: Value =
+        serde_json::from_str(line.trim_end()).expect("stdout line should be JSON");
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert_eq!(response["id"], Value::Null);
+    assert_eq!(response["error"]["code"], -32600);
+
+    match stdout_rx.recv_timeout(Duration::from_millis(100)) {
+        Err(mpsc::RecvTimeoutError::Timeout) => {}
+        Ok(Ok(extra_line)) => {
+            panic!("unexpected extra stdout response before cleanup: {extra_line}")
+        }
+        Ok(Err(error)) => panic!("{error}"),
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            panic!("stdout reader disconnected before cleanup")
+        }
+    }
+
+    drop(stdin);
+    let output = child.wait_with_output().expect("server should exit on EOF");
+    assert!(output.status.success());
+    stdout_reader.join().expect("stdout reader should finish");
 }
 
 #[test]

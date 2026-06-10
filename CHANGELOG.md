@@ -8,6 +8,16 @@ request is opened.
 
 ## Unreleased
 
+### Security-sensitive
+
+- Hardened stdio JSON-RPC framing against oversized-line denial of service by
+  enforcing the fixed stdin line bound and rejecting once the hard-cap violation
+  byte is read. Oversized requests return an invalid-request response with
+  `id: null` because request IDs cannot be trusted after bound failure.
+- Residual risk for Warp review: this bound does not add a wall-clock read
+  timeout, so clients that keep pipes open without exceeding the line limit can
+  still hold a read pending.
+
 ### Breaking diagnostic behavior
 
 - Diagnostic severity/confidence changes are intentional breaking behavior for
