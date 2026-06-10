@@ -1,3 +1,4 @@
+use leptos_mcp_server::api::rust_api_snippets;
 use leptos_mcp_server::docs::{rust_code_blocks, SnippetClassification};
 use leptos_mcp_server::recipes::rust_recipe_snippets;
 use std::fs;
@@ -41,6 +42,16 @@ impl Router {
         self
     }
 
+    fn leptos_routes_with_context<T>(
+        self,
+        _options: &LeptosOptions,
+        _routes: Routes,
+        _provide_context: T,
+        _app: App,
+    ) -> Self {
+        self
+    }
+
     fn fallback(self, _handler: Handler) -> Self {
         self
     }
@@ -50,7 +61,17 @@ fn post<T>(_handler: T) -> Handler {
     Handler
 }
 
+fn file_and_error_handler<T>(handler: T) -> Handler {
+    leptos_axum::file_and_error_handler(handler)
+}
+
+fn generate_route_list(_app: App) -> Routes {
+    Routes
+}
+
 fn handle_server_fns() {}
+
+fn provide_context() {}
 
 fn shell() {}
 "#;
@@ -87,6 +108,23 @@ fn compile_candidate_recipe_snippets_compile_with_shared_harness() {
     for (index, snippet) in candidates.iter().enumerate() {
         compile_snippet(
             &format!("recipe-{}-{index}", snippet.recipe_id),
+            snippet.content,
+        );
+    }
+}
+
+#[test]
+fn compile_candidate_api_snippets_compile_with_shared_harness() {
+    let candidates: Vec<_> = rust_api_snippets()
+        .into_iter()
+        .filter(|snippet| snippet.classification == SnippetClassification::CompileCandidate)
+        .collect();
+
+    assert!(!candidates.is_empty(), "expected at least one API compile candidate");
+
+    for (index, snippet) in candidates.iter().enumerate() {
+        compile_snippet(
+            &format!("api-{}-{index}", snippet.symbol_name),
             snippet.content,
         );
     }

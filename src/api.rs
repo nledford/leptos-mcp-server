@@ -1,5 +1,6 @@
 //! Curated public API catalog for Leptos application development.
 
+use crate::docs::SnippetClassification;
 use serde::Serialize;
 
 pub const LEPTOS_VERSION: &str = "0.8.19";
@@ -20,6 +21,14 @@ pub struct ApiSymbol {
     pub aliases: &'static [&'static str],
     pub related_sections: &'static [&'static str],
     pub snippet: &'static str,
+    pub snippet_classification: SnippetClassification,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApiRustSnippet {
+    pub symbol_name: &'static str,
+    pub classification: SnippetClassification,
+    pub content: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +61,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         ],
         related_sections: &["resources", "suspense", "server-functions"],
         snippet: "let data = Resource::new(move || id.get(), |id| load_item(id));\nlet blocking = Resource::new_blocking(|| (), |_| load_initial_state());",
+        snippet_classification: SnippetClassification::Illustrative,
     },
     ApiSymbol {
         name: "leptos::server",
@@ -63,6 +73,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["#[server]", "server", "server function", "server_fn"],
         related_sections: &["server-functions", "forms", "actions"],
         snippet: "#[server(GetUser)]\npub async fn get_user(id: String) -> Result<UserDto, ServerFnError> {\n    Ok(load_user(id).await?)\n}",
+        snippet_classification: SnippetClassification::Illustrative,
     },
     ApiSymbol {
         name: "leptos::server_fn::ServerFnError",
@@ -74,6 +85,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["ServerFnError", "server fn error"],
         related_sections: &["server-functions", "error-handling"],
         snippet: "pub async fn save() -> Result<(), ServerFnError> {\n    fallible_work().await.map_err(ServerFnError::new)?;\n    Ok(())\n}",
+        snippet_classification: SnippetClassification::Illustrative,
     },
     ApiSymbol {
         name: "leptos::form::ActionForm",
@@ -85,6 +97,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["ActionForm", "action form", "server action form"],
         related_sections: &["forms", "actions", "server-functions"],
         snippet: "<ActionForm action=save_action>\n    <input name=\"title\" />\n    <button type=\"submit\">\"Save\"</button>\n</ActionForm>",
+        snippet_classification: SnippetClassification::Ignore,
     },
     ApiSymbol {
         name: "leptos_axum::LeptosRoutes",
@@ -99,7 +112,8 @@ static API_SYMBOLS: &[ApiSymbol] = &[
             "leptos_routes_with_context",
         ],
         related_sections: &["leptos-axum", "ssr-hydration-deployment", "routing"],
-        snippet: "Router::new()\n    .leptos_routes_with_context(&leptos_options, routes, provide_context, app)",
+        snippet: "let app = Router::new()\n    .leptos_routes_with_context(&leptos_options, routes, provide_context, app);",
+        snippet_classification: SnippetClassification::CompileCandidate,
     },
     ApiSymbol {
         name: "leptos_axum::generate_route_list",
@@ -111,6 +125,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["generate_route_list", "route list", "routes"],
         related_sections: &["leptos-axum", "routing"],
         snippet: "let routes = generate_route_list(App);",
+        snippet_classification: SnippetClassification::CompileCandidate,
     },
     ApiSymbol {
         name: "leptos_axum::handle_server_fns",
@@ -125,7 +140,8 @@ static API_SYMBOLS: &[ApiSymbol] = &[
             "server functions route",
         ],
         related_sections: &["leptos-axum", "server-functions"],
-        snippet: ".route(\"/api/{*fn_name}\", post(handle_server_fns))",
+        snippet: "let app = Router::new()\n    .route(\"/api/{*fn_name}\", post(handle_server_fns));",
+        snippet_classification: SnippetClassification::CompileCandidate,
     },
     ApiSymbol {
         name: "leptos_axum::file_and_error_handler",
@@ -141,7 +157,8 @@ static API_SYMBOLS: &[ApiSymbol] = &[
             "wasm css",
         ],
         related_sections: &["ssr-hydration-deployment", "leptos-axum"],
-        snippet: ".fallback(file_and_error_handler(shell))",
+        snippet: "let app = Router::new()\n    .fallback(file_and_error_handler(shell));",
+        snippet_classification: SnippetClassification::CompileCandidate,
     },
     ApiSymbol {
         name: "leptos_axum::extract",
@@ -153,6 +170,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["extract", "leptos_axum::extract", "axum extractors"],
         related_sections: &["server-functions", "leptos-axum", "axum"],
         snippet: "let Query(params): Query<SearchParams> = leptos_axum::extract().await?;",
+        snippet_classification: SnippetClassification::Illustrative,
     },
     ApiSymbol {
         name: "leptos_axum::extract_with_state",
@@ -164,6 +182,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["extract_with_state", "state extractor in server fn"],
         related_sections: &["server-functions", "leptos-axum", "axum"],
         snippet: "let State(app_state): State<AppState> = leptos_axum::extract_with_state(&state).await?;",
+        snippet_classification: SnippetClassification::Illustrative,
     },
     ApiSymbol {
         name: "leptos_axum::ResponseOptions",
@@ -175,6 +194,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["ResponseOptions", "set_status", "headers", "cookies"],
         related_sections: &["leptos-axum", "error-handling", "ssr-hydration-deployment"],
         snippet: "let response = expect_context::<ResponseOptions>();\nresponse.set_status(StatusCode::NOT_FOUND);",
+        snippet_classification: SnippetClassification::Illustrative,
     },
     ApiSymbol {
         name: "axum::Router",
@@ -186,6 +206,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["Router", "axum router", "route", "fallback"],
         related_sections: &["axum", "leptos-axum", "routing"],
         snippet: "let app = Router::new()\n    .route(\"/api/health\", get(health))\n    .with_state(app_state);",
+        snippet_classification: SnippetClassification::Illustrative,
     },
     ApiSymbol {
         name: "axum::extract::State",
@@ -197,6 +218,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["State", "with_state", "FromRef", "substate"],
         related_sections: &["axum", "leptos-axum", "server-functions"],
         snippet: "async fn handler(State(state): State<AppState>) -> impl IntoResponse {\n    Json(state.health()).into_response()\n}",
+        snippet_classification: SnippetClassification::Illustrative,
     },
     ApiSymbol {
         name: "axum::extract::Path",
@@ -208,6 +230,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["Path", "path params", "route params"],
         related_sections: &["axum", "routing"],
         snippet: "async fn show_user(Path(id): Path<Uuid>) -> impl IntoResponse { ... }",
+        snippet_classification: SnippetClassification::Ignore,
     },
     ApiSymbol {
         name: "axum::extract::Query",
@@ -219,6 +242,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["Query", "query params"],
         related_sections: &["axum", "server-functions"],
         snippet: "let Query(params): Query<SearchParams> = leptos_axum::extract().await?;",
+        snippet_classification: SnippetClassification::Illustrative,
     },
     ApiSymbol {
         name: "axum::Json",
@@ -230,6 +254,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["Json", "json response", "json extractor"],
         related_sections: &["axum", "error-handling"],
         snippet: "async fn api() -> Json<ApiResponse> {\n    Json(ApiResponse::ok())\n}",
+        snippet_classification: SnippetClassification::Illustrative,
     },
     ApiSymbol {
         name: "axum::response::IntoResponse",
@@ -241,6 +266,7 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["IntoResponse", "response", "error response"],
         related_sections: &["axum", "error-handling"],
         snippet: "impl IntoResponse for AppError {\n    fn into_response(self) -> Response { (StatusCode::BAD_REQUEST, self.to_string()).into_response() }\n}",
+        snippet_classification: SnippetClassification::Illustrative,
     },
     ApiSymbol {
         name: "axum::middleware",
@@ -252,11 +278,24 @@ static API_SYMBOLS: &[ApiSymbol] = &[
         aliases: &["middleware", "tower layer", "route_layer"],
         related_sections: &["axum", "leptos-axum"],
         snippet: "Router::new().route_layer(axum::middleware::from_fn(auth_middleware))",
+        snippet_classification: SnippetClassification::Illustrative,
     },
 ];
 
 pub fn all_symbols() -> &'static [ApiSymbol] {
     API_SYMBOLS
+}
+
+pub fn rust_api_snippets() -> Vec<ApiRustSnippet> {
+    API_SYMBOLS
+        .iter()
+        .filter(|symbol| symbol.snippet_classification != SnippetClassification::Ignore)
+        .map(|symbol| ApiRustSnippet {
+            symbol_name: symbol.name,
+            classification: symbol.snippet_classification,
+            content: symbol.snippet,
+        })
+        .collect()
 }
 
 pub fn lookup_symbol(
@@ -385,5 +424,27 @@ mod tests {
                 symbol.crate_name
             );
         }
+    }
+
+    #[test]
+    fn api_rust_snippet_inventory_exposes_current_classifications() {
+        let snippets = rust_api_snippets();
+
+        assert_eq!(snippets.len(), 16);
+        assert_eq!(
+            snippets
+                .iter()
+                .filter(|snippet| snippet.classification == SnippetClassification::CompileCandidate)
+                .count(),
+            4,
+            "only complete API examples supported by the shared harness should be compile candidates"
+        );
+        assert_eq!(
+            snippets
+                .iter()
+                .filter(|snippet| snippet.classification == SnippetClassification::Illustrative)
+                .count(),
+            12
+        );
     }
 }
