@@ -66,6 +66,31 @@ static PROMPTS: &[PromptTemplate] = &[
         template: "Add a Leptos #[server] function for {operation}. Keep it async, return Result<T, ServerFnError>, define serializable DTOs, avoid leaking server-only data, and choose Resource for reads or ServerAction/ActionForm for mutations. Data context: {data}.",
     },
     PromptTemplate {
+        name: "review-sql-access",
+        description: "Review sqlx or SeaQuery usage in a Leptos/Axum application.",
+        arguments: &[
+            PromptArgument {
+                name: "code",
+                description: "Leptos server function, Axum handler, repository, or query-builder code to review.",
+                required: true,
+            },
+            PromptArgument {
+                name: "backend",
+                description: "Database backend if known, such as PostgreSQL, SQLite, or MySQL.",
+                required: false,
+            },
+        ],
+        related_tools: &["search-docs", "leptos-axum-recipe", "leptos-diagnostics"],
+        related_sections: &[
+            "server-functions",
+            "actions",
+            "leptos-axum",
+            "axum",
+            "error-handling",
+        ],
+        template: "Review this Leptos/Axum database access code for safe and maintainable SQL usage. Check sqlx pool ownership through Axum State and Leptos context, fixed SQL with query! or query_as! where practical, SeaQuery only for genuinely dynamic query shapes, bind parameters or SeaQuery values for all user input, transaction boundaries for multi-step writes, user-safe error mapping, DTO boundaries, async/Send behavior, and database-backed tests. Database backend: {backend}.\n\nCode:\n{code}",
+    },
+    PromptTemplate {
         name: "debug-hydration",
         description: "Diagnose SSR/hydration or static asset failures in a Leptos app.",
         arguments: &[
@@ -148,6 +173,20 @@ mod tests {
 
         assert!(rendered.contains("WASM 404"));
         assert!(rendered.contains("feature flags"));
+    }
+
+    #[test]
+    fn renders_sql_access_review_prompt() {
+        let prompt = get_prompt("review_sql_access").expect("SQL review prompt should exist");
+        let mut arguments = BTreeMap::new();
+        arguments.insert("backend".to_string(), "SQLite".to_string());
+        arguments.insert("code".to_string(), "sqlx::query!(\"SELECT 1\")".to_string());
+
+        let rendered = render_prompt(prompt, &arguments);
+
+        assert!(rendered.contains("SQLite"));
+        assert!(rendered.contains("bind parameters"));
+        assert!(rendered.contains("sqlx::query!"));
     }
 
     #[test]

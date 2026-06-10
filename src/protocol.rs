@@ -349,7 +349,7 @@ impl McpServer {
                         "properties": {
                             "recipe": {
                                 "type": "string",
-                                "description": "Recipe id or alias such as ssr-app, server-functions, static-assets, custom-handler, state-context, or wasm-runtime"
+                                "description": "Recipe id or alias such as ssr-app, server-functions, static-assets, custom-handler, state-context, database-query-patterns, or wasm-runtime"
                             }
                         },
                         "required": ["recipe"],
@@ -816,12 +816,16 @@ mod tests {
         let server = McpServer::new();
         let response = server
             .handle_line(
-                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"leptos-axum-recipe","arguments":{"recipe":"ssr-app"}}}"#,
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"leptos-axum-recipe","arguments":{"recipe":"database-query-patterns"}}}"#,
             )
             .await
             .expect("request should receive a response");
 
         assert!(result(&response)["structuredContent"]["recipe"]["files"].is_array());
+        assert_eq!(
+            result(&response)["structuredContent"]["recipe"]["id"],
+            "database-query-patterns"
+        );
     }
 
     #[tokio::test]
@@ -868,12 +872,12 @@ mod tests {
                 .as_array()
                 .expect("prompts should be an array")
                 .iter()
-                .any(|prompt| prompt["name"] == "debug-hydration")
+                .any(|prompt| prompt["name"] == "review-sql-access")
         );
 
         let prompt = server
             .handle_line(
-                r#"{"jsonrpc":"2.0","id":2,"method":"prompts/get","params":{"name":"debug-hydration","arguments":{"symptom":"WASM 404"}}}"#,
+                r#"{"jsonrpc":"2.0","id":2,"method":"prompts/get","params":{"name":"review-sql-access","arguments":{"backend":"SQLite","code":"sqlx::query!(\"SELECT 1\")"}}}"#,
             )
             .await
             .expect("prompts/get should receive a response");
@@ -882,7 +886,7 @@ mod tests {
             result(&prompt)["messages"][0]["content"]["text"]
                 .as_str()
                 .expect("prompt text should exist")
-                .contains("WASM 404")
+                .contains("bind parameters")
         );
     }
 

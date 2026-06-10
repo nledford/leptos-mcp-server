@@ -44,7 +44,10 @@ pub async fn get_user(id: String) -> Result<User, ServerFnError> {
 
     // Database error handling
     let user = db.find(&id).await
-        .map_err(|e| ServerFnError::new(format!("Database error: {}", e)))?;
+        .map_err(|error| {
+            tracing::error!(?error, "database lookup failed");
+            ServerFnError::new("Database lookup failed")
+        })?;
 
     user.ok_or_else(|| ServerFnError::new("User not found"))
 }
@@ -78,6 +81,37 @@ impl From<AppError> for ServerFnError {
     }
 }
 ```
+
+## Database Error Boundaries
+
+Map `sqlx::Error` or SeaQuery/sqlx adapter errors into application errors at the
+server boundary. Log detailed database failures server-side, but return stable,
+user-safe messages to Leptos components.
+
+```rust
+#[derive(thiserror::Error, Debug)]
+pub enum AppError {
+    #[error("Item not found")]
+    NotFound,
+
+    #[error("Database operation failed")]
+    Database(#[from] sqlx::Error),
+}
+
+impl From<AppError> for ServerFnError {
+    fn from(error: AppError) -> Self {
+        match error {
+            AppError::NotFound => ServerFnError::new("Item not found"),
+            AppError::Database(_) => ServerFnError::new("Database operation failed"),
+        }
+    }
+}
+```
+
+Handle expected cases such as `RowNotFound`, unique constraint failures, and
+validation errors explicitly. Treat unexpected database errors as internal
+failures and avoid exposing SQL text, connection strings, or driver details to
+the browser.
 
 ## Handling Resource Errors
 
@@ -117,3 +151,5 @@ fn UserProfile(id: String) -> impl IntoView {
 3. Provide user-friendly error messages
 4. Include retry functionality for recoverable errors
 5. Log detailed errors server-side, show simple messages client-side
+6. Do not expose SQL statements, connection strings, or raw driver errors in
+   browser-visible `ServerFnError` messages

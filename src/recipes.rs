@@ -204,6 +204,124 @@ let app = Router::new()
         ],
     },
     Recipe {
+        id: "database-query-patterns",
+        title: "Use sqlx and SeaQuery in Leptos server functions",
+        summary: "Share a database pool through Axum state and Leptos context, use checked sqlx queries for fixed SQL, and reserve SeaQuery for dynamic filters.",
+        aliases: &[
+            "sqlx",
+            "sea-query",
+            "SeaQuery",
+            "database queries",
+            "db query patterns",
+        ],
+        crates: &[
+            "leptos 0.8.19",
+            "leptos_axum 0.8.9",
+            "axum 0.8.9",
+            "sqlx",
+            "sea-query",
+            "sea-query-sqlx",
+        ],
+        related_sections: &[
+            "server-functions",
+            "actions",
+            "leptos-axum",
+            "axum",
+            "error-handling",
+        ],
+        related_apis: &[
+            "leptos::server",
+            "leptos_axum::LeptosRoutes",
+            "axum::extract::State",
+            "sqlx::query!",
+            "sqlx::query_as!",
+            "sea_query::Query",
+        ],
+        steps: &[
+            "Create the sqlx pool once during server startup and store the cloneable pool handle in Axum state.",
+            "Provide the same pool to Leptos server functions with leptos_routes_with_context and expect_context.",
+            "Use sqlx::query! or query_as! for fixed SQL so builds check column names and argument types.",
+            "Use SeaQuery only when the query shape is dynamic, then pass generated SQL and values to sqlx without string-formatting user input.",
+            "Wrap multi-step mutations in transactions and map database errors to user-safe ServerFnError values.",
+        ],
+        files: &[
+            RecipeFile {
+                path: "src/main.rs",
+                language: "rust",
+                content: r#"let pool = SqlitePool::connect(&database_url).await?;
+let app_state = AppState { pool: pool.clone() };
+
+let app = Router::new()
+    .leptos_routes_with_context(
+        &leptos_options,
+        routes,
+        {
+            let pool = pool.clone();
+            move || provide_context(pool.clone())
+        },
+        app,
+    )
+    .with_state(app_state);"#,
+            },
+            RecipeFile {
+                path: "src/server/items.rs",
+                language: "rust",
+                content: r#"#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ItemDto {
+    pub id: i64,
+    pub title: String,
+}
+
+#[server(GetItem)]
+pub async fn get_item(id: i64) -> Result<Option<ItemDto>, ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+
+    sqlx::query_as!(
+        ItemDto,
+        "SELECT id, title FROM items WHERE id = ?",
+        id,
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(|error| {
+        tracing::error!(?error, "database query failed");
+        ServerFnError::new("Database query failed")
+    })
+}"#,
+            },
+            RecipeFile {
+                path: "src/server/search.rs",
+                language: "rust",
+                content: r#"use sea_query::{Alias, Expr, Order, Query, SqliteQueryBuilder};
+use sea_query_sqlx::SqlxBinder;
+
+pub async fn search_items(
+    pool: &SqlitePool,
+    title: Option<String>,
+) -> Result<Vec<ItemDto>, sqlx::Error> {
+    let (sql, values) = Query::select()
+        .columns([Alias::new("id"), Alias::new("title")])
+        .from(Alias::new("items"))
+        .apply_if(title, |query, title| {
+            query.and_where(Expr::col(Alias::new("title")).like(format!("%{title}%")));
+        })
+        .order_by(Alias::new("created_at"), Order::Desc)
+        .build_sqlx(SqliteQueryBuilder);
+
+    sqlx::query_as_with::<_, ItemDto, _>(&sql, values)
+        .fetch_all(pool)
+        .await
+}"#,
+            },
+        ],
+        validation: &[
+            "cargo check succeeds with the chosen sqlx backend feature enabled in the application crate.",
+            "sqlx prepare --check passes, or CI provides DATABASE_URL for checked query macros.",
+            "Tests cover not-found, constraint, and transaction rollback paths against a temporary database or rollback transaction.",
+            "User-controlled values are passed as sqlx bind parameters or SeaQuery values, never formatted into SQL text.",
+        ],
+    },
+    Recipe {
         id: "wasm-runtime",
         title: "Configure leptos_axum for JS-hosted WebAssembly runtimes",
         summary: "Use the leptos_axum wasm feature only when targeting JS Fetch runtimes such as Deno or Workers.",
@@ -271,6 +389,19 @@ mod tests {
         let recipe = get_recipe("pkg").expect("pkg alias should resolve");
 
         assert_eq!(recipe.id, "static-assets");
+    }
+
+    #[test]
+    fn resolves_database_query_recipe_by_sqlx_alias() {
+        let recipe = get_recipe("sqlx").expect("sqlx alias should resolve");
+
+        assert_eq!(recipe.id, "database-query-patterns");
+        assert!(
+            recipe
+                .validation
+                .iter()
+                .any(|step| step.contains("sqlx prepare"))
+        );
     }
 
     #[test]

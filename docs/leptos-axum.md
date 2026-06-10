@@ -26,6 +26,28 @@ let app = Router::new()
 Use `leptos_routes_with_context` when server functions or rendering need
 context such as a database pool.
 
+```rust
+use sqlx::SqlitePool;
+
+let pool = SqlitePool::connect(&database_url).await?;
+
+let app = Router::new()
+    .leptos_routes_with_context(
+        &leptos_options,
+        routes,
+        {
+            let pool = pool.clone();
+            move || provide_context(pool.clone())
+        },
+        app,
+    )
+    .with_state(AppState { pool });
+```
+
+Keep database pools and query helpers server-only. Browser and WASM code should
+call server functions and receive serializable DTOs, not database rows,
+connections, or driver errors.
+
 ## Server Function Route
 
 Server functions are public HTTP endpoints. Register a handler at the same API

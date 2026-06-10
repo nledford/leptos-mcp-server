@@ -135,6 +135,46 @@ view! {
 }
 ```
 
+## Database Mutations
+
+Database-backed actions should delegate writes to server functions. Use the
+shared pool from server context and wrap multi-step changes in a transaction.
+
+```rust
+#[server(ArchiveTodo)]
+pub async fn archive_todo(id: i64) -> Result<(), ServerFnError> {
+    let pool = expect_context::<SqlitePool>();
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| {
+            tracing::error!(?error, "could not start transaction");
+            ServerFnError::new("Could not start transaction")
+        })?;
+
+    sqlx::query!("UPDATE todos SET archived = TRUE WHERE id = ?", id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| {
+            tracing::error!(?error, "could not archive todo");
+            ServerFnError::new("Could not archive todo")
+        })?;
+
+    tx.commit()
+        .await
+        .map_err(|error| {
+            tracing::error!(?error, "could not commit transaction");
+            ServerFnError::new("Could not commit transaction")
+        })?;
+
+    Ok(())
+}
+```
+
+Prefer `query!` / `query_as!` for fixed writes and SeaQuery only when the update
+shape is genuinely dynamic. Keep all user input bound as parameters or SeaQuery
+values, then refetch affected `Resource`s after successful actions.
+
 ## Local Actions
 
 For `!Send` types or no SSR:

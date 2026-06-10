@@ -48,6 +48,11 @@ already use the request body.
 Use `Router::with_state` and the `State` extractor for type-safe shared state.
 Use `FromRef` when handlers need a smaller substate.
 
+Database pools such as `sqlx::PgPool`, `MySqlPool`, or `SqlitePool` are cheap
+clone handles around shared connection state. Create the pool once during
+startup, store it in application state, and clone the handle into handlers or
+Leptos context. Do not open a new pool per request.
+
 ```rust
 use axum::{
     extract::{FromRef, State},
@@ -77,6 +82,10 @@ let app = Router::new()
     .route("/api/items", get(handler))
     .with_state(AppState { pool });
 ```
+
+For database-backed handlers, keep SQL execution in small async helpers that
+accept `&DbPool` or `&AppState`. This makes handlers easy to test with
+`tower::ServiceExt` and lets Leptos server functions reuse the same query code.
 
 ## Responses and Errors
 

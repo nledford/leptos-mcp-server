@@ -19,7 +19,8 @@ as tools/resources, and provides workflow prompts for common Leptos + Axum work.
 
 This server also exposes embedded documentation as MCP resources and provides
 workflow prompts for SSR wiring, server functions, hydration debugging, and
-Axum integration review.
+Axum integration review, including guidance for sqlx and SeaQuery usage in
+Leptos/Axum applications.
 
 ## Architecture
 
@@ -45,14 +46,14 @@ Axum integration review.
 | **Signals**          | `get()`, `set()`, `read()`, `write()`, `update()`, derived signals |
 | **Views**            | `view!` macro, dynamic classes/styles/attributes                   |
 | **Resources**        | `Resource`, `LocalResource`, `OnceResource`, async data loading    |
-| **Actions**          | `ServerAction`, `ActionForm`, mutations                            |
-| **Server Functions** | `#[server]`, extractors, Axum integration                          |
+| **Actions**          | `ServerAction`, `ActionForm`, mutations, transactions              |
+| **Server Functions** | `#[server]`, extractors, Axum integration, sqlx, SeaQuery          |
 | **Routing**          | Router, routes, params, nested routing                             |
 | **Forms**            | Controlled inputs, `prop:value`, validation                        |
-| **Error Handling**   | `ErrorBoundary`, `ServerFnError`                                   |
+| **Error Handling**   | `ErrorBoundary`, `ServerFnError`, database errors                  |
 | **Suspense**         | `<Suspense>`, `<Transition>`, loading states                       |
-| **Leptos Axum**      | `LeptosRoutes`, `handle_server_fns`, extractors, response options  |
-| **Axum 0.8.9**       | `Router`, `State`, extractors, middleware, `IntoResponse`          |
+| **Leptos Axum**      | `LeptosRoutes`, `handle_server_fns`, extractors, database context  |
+| **Axum 0.8.9**       | `Router`, `State`, extractors, middleware, database pools          |
 | **SSR/Hydration**    | Feature flags, static files, deployment, hydration debugging       |
 
 ## Prerequisites
@@ -185,10 +186,11 @@ echo '{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"debug-hyd
 ```
 
 Available recipe ids are `ssr-app`, `server-functions`, `static-assets`,
-`custom-handler`, `state-context`, and `wasm-runtime`.
+`custom-handler`, `state-context`, `database-query-patterns`, and
+`wasm-runtime`.
 
 Available prompt names are `wire-leptos-axum-ssr`, `add-server-function`,
-`debug-hydration`, and `review-axum-integration`.
+`review-sql-access`, `debug-hydration`, and `review-axum-integration`.
 
 ## Development
 
@@ -242,6 +244,11 @@ relevant APIs, and snippet classification for each section.
 
 Leptos API references target Leptos 0.8.19. `leptos_axum` references target
 0.8.9, and Axum references target Axum 0.8.9.
+
+SQL guidance is documentation-only. It references current `sqlx`, SeaQuery, and
+`sea-query-sqlx` APIs for application code examples but does not add database
+connectivity, query execution, schema inspection, or migration management to the
+MCP server.
 
 ## Troubleshooting
 

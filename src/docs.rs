@@ -139,9 +139,9 @@ static SECTIONS: &[DocSection] = &[
         id: "actions",
         title: "Actions",
         path: "actions",
-        use_cases: "mutations, POST, forms, ActionForm, ServerAction, submit, create, update, delete",
+        use_cases: "mutations, POST, forms, ActionForm, ServerAction, submit, create, update, delete, sqlx, transactions",
         content: include_str!("../docs/actions.md"),
-        aliases: &["action", "mutations", "server-action"],
+        aliases: &["action", "mutations", "server-action", "transaction"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
         source_path: "docs/actions.md",
@@ -151,9 +151,16 @@ static SECTIONS: &[DocSection] = &[
         id: "server-functions",
         title: "Server Functions",
         path: "server-functions",
-        use_cases: "backend, API, database, server, SSR, #[server], extractors, Axum",
+        use_cases: "backend, API, database, SQL, sqlx, SeaQuery, server, SSR, #[server], extractors, Axum",
         content: include_str!("../docs/server-functions.md"),
-        aliases: &["server", "server-fn", "server-functions"],
+        aliases: &[
+            "server",
+            "server-fn",
+            "server-functions",
+            "sqlx",
+            "sea-query",
+            "SeaQuery",
+        ],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
         source_path: "docs/server-functions.md",
@@ -187,7 +194,7 @@ static SECTIONS: &[DocSection] = &[
         id: "error-handling",
         title: "Error Handling",
         path: "error-handling",
-        use_cases: "errors, ErrorBoundary, Result, ServerFnError, try",
+        use_cases: "errors, ErrorBoundary, Result, ServerFnError, try, sqlx, database errors",
         content: include_str!("../docs/error-handling.md"),
         aliases: &["errors", "error-boundary", "server-fn-error"],
         leptos_version: LEPTOS_VERSION_SCOPE,
@@ -211,9 +218,14 @@ static SECTIONS: &[DocSection] = &[
         id: "leptos-axum",
         title: "Leptos Axum Integration",
         path: "leptos-axum",
-        use_cases: "Axum integration, SSR routes, server function handler, extractors, ResponseOptions",
+        use_cases: "Axum integration, SSR routes, server function handler, extractors, ResponseOptions, database pool, sqlx",
         content: include_str!("../docs/leptos-axum.md"),
-        aliases: &["axum-integration", "leptos_axum", "leptos axum"],
+        aliases: &[
+            "axum-integration",
+            "leptos_axum",
+            "leptos axum",
+            "database-pool",
+        ],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
         source_path: "docs/leptos-axum.md",
@@ -223,9 +235,9 @@ static SECTIONS: &[DocSection] = &[
         id: "axum",
         title: "Axum 0.8.9 for Leptos Servers",
         path: "axum",
-        use_cases: "Axum 0.8.9, Router, extractors, State, middleware, IntoResponse, testing",
+        use_cases: "Axum 0.8.9, Router, extractors, State, middleware, IntoResponse, testing, database pool, sqlx",
         content: include_str!("../docs/axum.md"),
-        aliases: &["axum-0.8.9", "axum-router", "axum-state"],
+        aliases: &["axum-0.8.9", "axum-router", "axum-state", "db-pool"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
         source_path: "docs/axum.md",
@@ -269,11 +281,38 @@ static LEPTOS_AXUM_CRATES: &[CrateVersion] = &[
     },
 ];
 
-static AXUM_CRATE: &[CrateVersion] = &[CrateVersion {
-    name: "axum",
-    version: AXUM_VERSION,
-    docs_url: "https://docs.rs/axum/0.8.9/axum/",
-}];
+static SQL_GUIDANCE_CRATES: &[CrateVersion] = &[
+    CrateVersion {
+        name: "leptos",
+        version: LEPTOS_VERSION,
+        docs_url: "https://docs.rs/leptos/latest/leptos/",
+    },
+    CrateVersion {
+        name: "leptos_axum",
+        version: LEPTOS_AXUM_VERSION,
+        docs_url: "https://docs.rs/leptos_axum/latest/leptos_axum/",
+    },
+    CrateVersion {
+        name: "axum",
+        version: AXUM_VERSION,
+        docs_url: "https://docs.rs/axum/0.8.9/axum/",
+    },
+    CrateVersion {
+        name: "sqlx",
+        version: "latest",
+        docs_url: "https://docs.rs/sqlx/latest/sqlx/",
+    },
+    CrateVersion {
+        name: "sea-query",
+        version: "latest",
+        docs_url: "https://docs.rs/sea-query/latest/sea_query/",
+    },
+    CrateVersion {
+        name: "sea-query-sqlx",
+        version: "latest",
+        docs_url: "https://docs.rs/sea-query-sqlx/latest/sea_query_sqlx/",
+    },
+];
 
 static SECTION_METADATA: &[SectionMetadata] = &[
     SectionMetadata {
@@ -348,29 +387,73 @@ static SECTION_METADATA: &[SectionMetadata] = &[
     },
     SectionMetadata {
         id: "actions",
-        crate_versions: LEPTOS_CRATE,
+        crate_versions: SQL_GUIDANCE_CRATES,
         source_url: "https://docs.rs/leptos/latest/leptos/prelude/struct.Action.html",
-        task_tags: &["mutations", "forms", "progressive-enhancement"],
-        crate_apis: &["Action", "ServerAction", "ActionForm"],
-        prerequisites: &["Server functions for server mutations"],
+        task_tags: &[
+            "mutations",
+            "forms",
+            "progressive-enhancement",
+            "sqlx",
+            "transactions",
+        ],
+        crate_apis: &[
+            "Action",
+            "ServerAction",
+            "ActionForm",
+            "sqlx::query!",
+            "sqlx::Transaction",
+        ],
+        prerequisites: &[
+            "Server functions for server mutations",
+            "Shared database pool context",
+        ],
         common_errors: &[
             "Missing input names in ActionForm",
             "Not handling action.value errors",
+            "Missing transaction around multi-step database mutation",
         ],
         related_sections: &["forms", "server-functions", "resources"],
         snippet_classification: SnippetClassification::Illustrative,
     },
     SectionMetadata {
         id: "server-functions",
-        crate_versions: LEPTOS_CRATE,
+        crate_versions: SQL_GUIDANCE_CRATES,
         source_url: "https://docs.rs/leptos/latest/leptos/attr.server.html",
-        task_tags: &["server-functions", "public-api", "dto", "extractors"],
-        crate_apis: &["#[server]", "ServerFnError", "leptos_axum::extract"],
-        prerequisites: &["Serializable DTOs", "Axum server integration"],
+        task_tags: &[
+            "server-functions",
+            "public-api",
+            "dto",
+            "extractors",
+            "sqlx",
+            "sea-query",
+            "database-queries",
+            "parameter-binding",
+            "transactions",
+            "testing-database-code",
+        ],
+        crate_apis: &[
+            "#[server]",
+            "ServerFnError",
+            "leptos_axum::extract",
+            "sqlx::query!",
+            "sqlx::query_as!",
+            "sqlx::Pool",
+            "sqlx::Transaction",
+            "sea_query::Query",
+            "sea_query_sqlx::SqlxBinder",
+        ],
+        prerequisites: &[
+            "Serializable DTOs",
+            "Axum server integration",
+            "Shared database pool context",
+            "DATABASE_URL or sqlx offline metadata for checked query macros",
+        ],
         common_errors: &[
             "Server function is not async",
             "Return type is not Result<T, ServerFnError>",
             "Leaking server-only data",
+            "Formatting user input into SQL",
+            "Missing sqlx prepare data in CI",
         ],
         related_sections: &["leptos-axum", "forms", "actions", "axum"],
         snippet_classification: SnippetClassification::Illustrative,
@@ -402,19 +485,28 @@ static SECTION_METADATA: &[SectionMetadata] = &[
     },
     SectionMetadata {
         id: "error-handling",
-        crate_versions: LEPTOS_AXUM_CRATES,
+        crate_versions: SQL_GUIDANCE_CRATES,
         source_url: "https://docs.rs/leptos/latest/leptos/error/index.html",
-        task_tags: &["errors", "ErrorBoundary", "ServerFnError", "IntoResponse"],
+        task_tags: &[
+            "errors",
+            "ErrorBoundary",
+            "ServerFnError",
+            "IntoResponse",
+            "sqlx",
+            "database-errors",
+        ],
         crate_apis: &[
             "ErrorBoundary",
             "ServerFnError",
             "ResponseOptions",
             "IntoResponse",
+            "sqlx::Error",
         ],
         prerequisites: &["Result-returning resources and server functions"],
         common_errors: &[
             "Showing internal errors to users",
             "Not setting HTTP status for SSR errors",
+            "Exposing SQL text or driver details to the browser",
         ],
         related_sections: &["server-functions", "leptos-axum", "axum"],
         snippet_classification: SnippetClassification::Illustrative,
@@ -432,7 +524,7 @@ static SECTION_METADATA: &[SectionMetadata] = &[
     },
     SectionMetadata {
         id: "leptos-axum",
-        crate_versions: LEPTOS_AXUM_CRATES,
+        crate_versions: SQL_GUIDANCE_CRATES,
         source_url: "https://docs.rs/leptos_axum/latest/leptos_axum/",
         task_tags: &[
             "leptos_axum",
@@ -440,6 +532,8 @@ static SECTION_METADATA: &[SectionMetadata] = &[
             "server-functions",
             "extractors",
             "route-list",
+            "database-pool",
+            "sqlx",
         ],
         crate_apis: &[
             "LeptosRoutes",
@@ -448,12 +542,19 @@ static SECTION_METADATA: &[SectionMetadata] = &[
             "extract",
             "extract_with_state",
             "ResponseOptions",
+            "sqlx::Pool",
         ],
-        prerequisites: &["Axum Router", "Leptos Router", "LeptosOptions"],
+        prerequisites: &[
+            "Axum Router",
+            "Leptos Router",
+            "LeptosOptions",
+            "Database pool initialized during server startup",
+        ],
         common_errors: &[
             "API prefix does not match server function route",
             "Using body extractors with leptos_axum::extract",
             "Disabling default features outside wasm runtimes",
+            "Providing pool to Axum state but not to Leptos context",
         ],
         related_sections: &[
             "ssr-hydration-deployment",
@@ -465,7 +566,7 @@ static SECTION_METADATA: &[SectionMetadata] = &[
     },
     SectionMetadata {
         id: "axum",
-        crate_versions: AXUM_CRATE,
+        crate_versions: SQL_GUIDANCE_CRATES,
         source_url: "https://docs.rs/axum/0.8.9/axum/",
         task_tags: &[
             "axum-0.8.9",
@@ -474,6 +575,8 @@ static SECTION_METADATA: &[SectionMetadata] = &[
             "State",
             "middleware",
             "IntoResponse",
+            "database-pool",
+            "sqlx",
         ],
         crate_apis: &[
             "Router",
@@ -483,12 +586,18 @@ static SECTION_METADATA: &[SectionMetadata] = &[
             "Json",
             "IntoResponse",
             "middleware",
+            "sqlx::Pool",
         ],
-        prerequisites: &["Tokio runtime", "HTTP handler basics"],
+        prerequisites: &[
+            "Tokio runtime",
+            "HTTP handler basics",
+            "Database pool initialized before Router::with_state",
+        ],
         common_errors: &[
             "Router<S> still missing state",
             "Extension extraction fails at runtime",
             "Middleware applied to the wrong route scope",
+            "Opening a new database pool per request",
         ],
         related_sections: &["leptos-axum", "server-functions", "error-handling"],
         snippet_classification: SnippetClassification::Illustrative,
@@ -884,6 +993,30 @@ mod tests {
         assert!(
             matches[0].matched_fields.contains(&"aliases")
                 || matches[0].matched_fields.contains(&"task_tags")
+        );
+    }
+
+    #[test]
+    fn search_finds_sql_guidance_sections() {
+        let matches = search_sections("sqlx").expect("search should succeed");
+        let ids: Vec<&str> = matches.iter().map(|match_| match_.section.id).collect();
+
+        assert!(ids.contains(&"server-functions"));
+        assert!(ids.contains(&"axum"));
+        assert!(
+            matches[0].matched_fields.contains(&"aliases")
+                || matches[0].matched_fields.contains(&"task_tags")
+                || matches[0].matched_fields.contains(&"crate_apis")
+        );
+    }
+
+    #[test]
+    fn search_finds_sea_query_guidance() {
+        let matches = search_sections("sea-query").expect("search should succeed");
+
+        assert_eq!(
+            matches.first().expect("expected match").section.id,
+            "server-functions"
         );
     }
 
