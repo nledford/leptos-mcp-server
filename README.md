@@ -2,6 +2,10 @@
 
 An MCP (Model Context Protocol) server providing comprehensive Leptos documentation and code analysis tools for AI agents.
 
+It runs as a stdio MCP server and speaks newline-delimited JSON-RPC 2.0. The
+server embeds curated Leptos, `leptos_axum`, and Axum documentation, exposes it
+as tools/resources, and provides workflow prompts for common Leptos + Axum work.
+
 ## Features
 
 | Tool                  | Description                                                      |
@@ -16,6 +20,21 @@ An MCP (Model Context Protocol) server providing comprehensive Leptos documentat
 This server also exposes embedded documentation as MCP resources and provides
 workflow prompts for SSR wiring, server functions, hydration debugging, and
 Axum integration review.
+
+## Architecture
+
+- `src/main.rs` initializes tracing and runs the stdio MCP server.
+- `src/protocol.rs` implements MCP/JSON-RPC request handling, schemas,
+  resources, prompts, error responses, and request limits.
+- `src/tools.rs` contains the tool handlers and response models.
+- `src/docs.rs` indexes the embedded Markdown documentation in `docs/` and maps
+  it to `leptos://docs/<section>` resources.
+- `src/api.rs` contains a curated API catalog for Leptos, `leptos_axum`, and
+  Axum symbols.
+- `src/diagnostics.rs` provides heuristic Leptos/Axum diagnostics.
+- `src/recipes.rs` and `src/prompts.rs` provide workflow recipes and MCP prompt
+  templates.
+- `tests/stdio.rs` exercises the compiled binary over stdio.
 
 ## Documentation Sections
 
@@ -36,12 +55,30 @@ Axum integration review.
 | **Axum 0.8.9**       | `Router`, `State`, extractors, middleware, `IntoResponse`          |
 | **SSR/Hydration**    | Feature flags, static files, deployment, hydration debugging       |
 
+## Prerequisites
+
+- Rust 1.96 or newer. `Cargo.toml` declares `rust-version = "1.96"`, and CI
+  checks Rust 1.96.0 plus the current stable toolchain.
+- Cargo, included with Rust.
+- Optional CI-style tools for local parity: `cargo-llvm-cov`, `cargo-audit`, and
+  `cargo-deny`.
+
 ## Installation
 
 ```bash
 cd leptos-mcp-server
-cargo build --release
+cargo build --release --locked
 ```
+
+The release binary is written to `target/release/leptos-mcp-server`.
+
+## Configuration
+
+No project-specific environment variables are required.
+
+Logging is controlled with `RUST_LOG`. If unset, the server defaults to
+`leptos_mcp_server=info`. Logs are written to stderr so stdout remains reserved
+for JSON-RPC responses.
 
 ## Usage with Claude Desktop / Antigravity
 
@@ -60,7 +97,12 @@ Add to your MCP config file:
 }
 ```
 
-## Testing
+Use an absolute path to the release binary you built in the installation step.
+
+## MCP Smoke Tests
+
+The examples below assume `cargo build --release --locked` has already produced
+`./target/release/leptos-mcp-server`.
 
 ```bash
 # Test tools/list
@@ -87,9 +129,21 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"leptos-axu
 # List resources
 echo '{"jsonrpc":"2.0","id":1,"method":"resources/list","params":{}}' | ./target/release/leptos-mcp-server 2>/dev/null
 
+# Read an embedded documentation resource
+echo '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"leptos://docs/signals"}}' | ./target/release/leptos-mcp-server 2>/dev/null
+
 # List prompts
 echo '{"jsonrpc":"2.0","id":1,"method":"prompts/list","params":{}}' | ./target/release/leptos-mcp-server 2>/dev/null
+
+# Render a prompt
+echo '{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"debug-hydration","arguments":{"symptom":"WASM 404"}}}' | ./target/release/leptos-mcp-server 2>/dev/null
 ```
+
+Available recipe ids are `ssr-app`, `server-functions`, `static-assets`,
+`custom-handler`, `state-context`, and `wasm-runtime`.
+
+Available prompt names are `wire-leptos-axum-ssr`, `add-server-function`,
+`debug-hydration`, and `review-axum-integration`.
 
 ## Development
 
@@ -97,16 +151,36 @@ echo '{"jsonrpc":"2.0","id":1,"method":"prompts/list","params":{}}' | ./target/r
 # Run in development
 cargo run
 
-# Check for errors
-cargo check
+# Check for errors using the locked dependency graph
+cargo check --locked
+
+# Check the declared MSRV, matching CI
+cargo +1.96.0 check --locked
+
+# Format check
+cargo fmt -- --check
+
+# Run tests
+cargo test --locked
+
+# Lint all targets
+cargo clippy --locked --all-targets -- -D warnings
 
 # Build release
-cargo build --release
+cargo build --release --locked
+
+# Optional CI parity checks, if the cargo subcommands are installed
+cargo llvm-cov --locked --summary-only --fail-under-lines 70
+cargo audit
+cargo deny check
 ```
 
 ## Protocol
 
 This server implements MCP over stdio using newline-delimited JSON-RPC 2.0.
+It advertises MCP protocol version `2024-11-05` and supports `initialize`,
+`tools/list`, `tools/call`, `resources/list`, `resources/read`, `prompts/list`,
+and `prompts/get`.
 
 Invalid JSON-RPC requests return standard JSON-RPC error codes. Documentation
 lookup requires a canonical section id or declared alias from `list-sections`;
@@ -124,6 +198,22 @@ relevant APIs, and snippet classification for each section.
 Leptos API references target Leptos 0.8.19. `leptos_axum` references target
 0.8.9, and Axum references target Axum 0.8.9.
 
+## Troubleshooting
+
+- If an MCP client cannot start the server, confirm the configured `command` is
+  an absolute path to `target/release/leptos-mcp-server` and that the release
+  build completed successfully.
+- JSON-RPC requests must be newline-delimited. When testing manually, send one
+  complete JSON object per line.
+- stdout is reserved for JSON-RPC responses. Use stderr or `RUST_LOG` for logs;
+  redirect stderr when you need raw JSON output in shell pipelines.
+- Tool arguments are strict. Extra fields or unknown tool names return
+  JSON-RPC errors.
+- `get-documentation` requires a canonical section id or alias from
+  `list-sections`; arbitrary substrings are rejected.
+- Individual JSON-RPC request lines are limited to 1 MiB, and
+  `leptos-diagnostics` accepts code payloads up to 256 KiB.
+
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
