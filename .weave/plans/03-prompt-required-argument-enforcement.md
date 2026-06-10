@@ -35,40 +35,40 @@ Make prompt metadata executable by rejecting missing or blank required prompt ar
 
 ## TODOs
 
-- [ ] 1. Add prompt-domain tests first
+- [x] 1. Add prompt-domain tests first
   **What**: Cover required present, required missing, required blank/whitespace, optional missing, and unknown extra arguments if the implementation chooses to reject extras.
   **Files**: `src/prompts.rs`
   **Acceptance**: Tests define the domain behavior independent of JSON-RPC.
 
-- [ ] 2. Introduce prompt validation error type
+- [x] 2. Introduce prompt validation error type
   **What**: Extend `PromptLookupError` or add `PromptRenderError` with missing required argument names; expose `render_prompt` as fallible or add `validate_arguments` used before rendering.
   **Files**: `src/prompts.rs`
   **Acceptance**: Missing required arguments produce deterministic, testable error messages containing prompt name and argument names.
 
-- [ ] 3. Wire validation into protocol
+- [x] 3. Wire validation into protocol
   **What**: Update `handle_get_prompt` to map prompt validation failures to `ProtocolError::InvalidParams` (`-32602`).
   **Files**: `src/protocol.rs`
   **Acceptance**: `prompts/get` with `review-sql-access` and missing `code` returns an error, not a partial prompt.
 
-- [ ] 4. Preserve optional placeholder semantics
+- [x] 4. Preserve optional placeholder semantics
   **What**: Keep optional missing values rendering as empty strings for templates that intentionally include context placeholders.
   **Files**: `src/prompts.rs`, `src/protocol.rs`
   **Acceptance**: Existing tests for `debug-hydration` with only `symptom` and SQL review with both required/optional args still pass.
 
-- [ ] 5. Add breaking-change note
+- [x] 5. Add breaking-change note
   **What**: Document that `prompts/get` now enforces required arguments and clients must send non-blank values for required metadata.
   **Files**: `CHANGELOG.md`
   **Acceptance**: Release note lists affected prompt names and argument names.
 
 ## Verification
-- [ ] Run `cargo test prompts`.
-- [ ] Run `cargo test protocol::tests::prompts_list_and_get_render_workflow_prompt`.
-- [ ] Run `cargo test protocol::tests::prompts_get_rejects_missing_required_arguments`.
-- [ ] Run `cargo test --test stdio` if prompt protocol snapshots are added there.
-- [ ] Run `cargo fmt -- --check`.
-- [ ] Run `cargo clippy --locked --all-targets -- -D warnings`.
-- [ ] Run `cargo test` before merging.
-- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
+- [x] Run `cargo test prompts`.
+- [x] Run `cargo test protocol::tests::prompts_list_and_get_render_workflow_prompt`.
+- [x] Run `cargo test protocol::tests::prompts_get_rejects_missing_required_arguments`.
+- [x] Run `cargo test --test stdio` if prompt protocol snapshots are added there.
+- [x] Run `cargo fmt -- --check`.
+- [x] Run `cargo clippy --locked --all-targets -- -D warnings`.
+- [x] Run `cargo test` before merging.
+- [x] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 
 ## Breaking-Change Notes
 - Intentional breaking change: previously accepted missing required prompt arguments now return `-32602`.
