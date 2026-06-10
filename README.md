@@ -36,6 +36,8 @@ Leptos/Axum applications.
 - `src/recipes.rs` and `src/prompts.rs` provide workflow recipes and MCP prompt
   templates.
 - `tests/stdio.rs` exercises the compiled binary over stdio.
+- `.agents/skills/leptos-mcp-server/` contains an optional Agent Skill that
+  teaches compatible agents when and how to use this MCP server.
 
 ## Documentation Sections
 
@@ -80,6 +82,27 @@ No project-specific environment variables are required.
 Logging is controlled with `RUST_LOG`. If unset, the server defaults to
 `leptos_mcp_server=info`. Logs are written to stderr so stdout remains reserved
 for JSON-RPC responses.
+
+## Agent Skill
+
+This repository includes an optional Agent Skill for agents that support the
+`SKILL.md` format:
+
+```text
+.agents/skills/leptos-mcp-server/SKILL.md
+```
+
+Install it from the repository root with the `skills` CLI:
+
+```bash
+npx skills add ./.agents/skills/leptos-mcp-server
+```
+
+The skill documents when agents should use this MCP server, its exact tools,
+resources, prompts, schemas, setup steps, workflows, troubleshooting, and
+security/privacy considerations. It does not replace building and configuring
+the MCP binary; use the installation and client configuration sections below for
+that.
 
 ## Usage with Claude Desktop / Antigravity
 
