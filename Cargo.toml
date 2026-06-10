@@ -1,9 +1,9 @@
 [package]
 name = "leptos-mcp-server"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "MCP Server for Leptos framework documentation and tools"
-authors = ["kneiht"]
+authors = ["kneiht", "Nathaniel Ledford <nate@nateledford.com>"]
 license = "MIT"
 rust-version = "1.96"
 
