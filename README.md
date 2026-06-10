@@ -7,8 +7,8 @@ An MCP (Model Context Protocol) server providing comprehensive Leptos documentat
 | Tool                | Description                                                     |
 | ------------------- | --------------------------------------------------------------- |
 | `list-sections`     | List all available Leptos documentation sections with use cases |
-| `get-documentation` | Retrieve specific documentation content by section name         |
-| `leptos-autofixer`  | Analyze Leptos code and suggest fixes for common issues         |
+| `get-documentation` | Retrieve documentation by canonical section id or declared alias|
+| `leptos-diagnostics`| Analyze Leptos code and return structured diagnostics           |
 
 ## Documentation Sections
 
@@ -59,8 +59,11 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | ./target/rel
 # Test list-sections
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list-sections","arguments":{}}}' | ./target/release/leptos-mcp-server 2>/dev/null
 
-# Test get-documentation
+# Test get-documentation with a canonical section id
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get-documentation","arguments":{"section":"signals"}}}' | ./target/release/leptos-mcp-server 2>/dev/null
+
+# Test diagnostics
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"leptos-diagnostics","arguments":{"code":"fn App() -> impl IntoView { view! { <p>{count.get()}</p> } }"}}}' | ./target/release/leptos-mcp-server 2>/dev/null
 ```
 
 ## Development
@@ -79,6 +82,11 @@ cargo build --release
 ## Protocol
 
 This server implements MCP over stdio using newline-delimited JSON-RPC 2.0.
+
+Invalid JSON-RPC requests return standard JSON-RPC error codes. Documentation
+lookup requires a canonical section id or declared alias from `list-sections`;
+partial substring lookup is intentionally rejected to avoid returning plausible
+but incorrect documentation.
 
 ## License
 
