@@ -50,7 +50,7 @@ Ensure snippets labeled compile-checkable are actually compiled, while illustrat
   **Files**: `tests/snippets.rs`, `src/docs.rs`, `src/recipes.rs`
   **Acceptance**: At least one docs snippet and one recipe snippet marked `CompileCandidate` are compiled in tests.
 
-- [ ] 4. Convert high-value snippets to compile candidates
+- [x] 4. Convert high-value snippets to compile candidates
   **What**: Start with stable, complete examples such as API catalog snippets or recipe files that can compile with minimal wrappers; leave partial router fragments illustrative.
   **Files**: `src/docs.rs`, `src/recipes.rs`, `src/api.rs`
   **Acceptance**: The compile-candidate set is small but real, and every candidate passes the harness.
