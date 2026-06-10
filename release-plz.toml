@@ -10,6 +10,9 @@ git_release_enable = false
 
 [[package]]
 name = "leptos-mcp-server"
+# Keep the package override in git-only mode too. Package-level release settings
+# override workspace defaults, and this crate is intentionally not on crates.io.
+git_only = true
 changelog_path = "CHANGELOG.md"
 git_tag_name = "v{{ version }}"
 git_tag_enable = true
