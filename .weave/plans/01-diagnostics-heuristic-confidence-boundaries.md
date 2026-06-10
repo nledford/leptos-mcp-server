@@ -35,40 +35,40 @@ Make diagnostic output honest about heuristic uncertainty while preserving usefu
 
 ## TODOs
 
-- [ ] 1. Add characterization tests before behavior changes
+- [x] 1. Add characterization tests before behavior changes
   **What**: Pin representative true-positive and false-positive-prone inputs for each current rule, including `leptos.missing-component-attribute`, `leptos.server-fn-async`, `leptos.signal-get-in-view`, server function return errors, duplicate paths, body extractors, and deprecated signal APIs.
   **Files**: `src/diagnostics.rs`
   **Acceptance**: Tests fail only when rule IDs, spans, messages, severity, or confidence change unexpectedly.
 
-- [ ] 2. Define diagnostic confidence invariants
+- [x] 2. Define diagnostic confidence invariants
   **What**: Add a small rule metadata model or documented helper convention that states which detectors may emit `Severity::Error` and `Confidence::High`; add `Confidence::Low` if needed for speculative substring rules.
   **Files**: `src/diagnostics.rs`
   **Acceptance**: Every emitted diagnostic is created through the invariant-aware path or has an adjacent test explaining why it is high confidence.
 
-- [ ] 3. Downgrade heuristic-only findings
+- [x] 3. Downgrade heuristic-only findings
   **What**: Reclassify diagnostics that depend on substring/line scanning rather than structural certainty to warnings/info and medium/low confidence; keep truly protocol-independent compile blockers as errors only when the detector proves context.
   **Files**: `src/diagnostics.rs`
   **Acceptance**: False-positive-prone examples no longer emit high-confidence errors; useful text still appears in `render_diagnostics`.
 
-- [ ] 4. Update protocol/tool expectations
+- [x] 4. Update protocol/tool expectations
   **What**: Adjust tests that currently assume an error-level diagnostic from sample code so they assert stable rule presence plus the new severity/confidence contract.
   **Files**: `src/protocol.rs`, `src/tools.rs`
   **Acceptance**: Existing protocol structured output shape remains valid; changed severity/confidence values are intentional and tested.
 
-- [ ] 5. Add migration/release note
+- [x] 5. Add migration/release note
   **What**: Document that diagnostic severity/confidence changes are intentional breaking behavior for clients that gate on errors.
   **Files**: `CHANGELOG.md`
   **Acceptance**: Note names affected rule IDs and recommends clients treat diagnostics as advisory unless explicitly documented as compiler-equivalent.
 
 ## Verification
-- [ ] Run `cargo test diagnostics`.
-- [ ] Run `cargo test protocol`.
-- [ ] Run `cargo test tools` if tool rendering assertions are touched.
-- [ ] Run `cargo fmt -- --check`.
-- [ ] Run `cargo clippy --locked --all-targets -- -D warnings` if Rust source or tests are changed.
-- [ ] Run `cargo test` before merging.
-- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
-- [ ] No source behavior unrelated to diagnostics changes.
+- [x] Run `cargo test diagnostics`.
+- [x] Run `cargo test protocol`.
+- [x] Run `cargo test tools` if tool rendering assertions are touched.
+- [x] Run `cargo fmt -- --check`.
+- [x] Run `cargo clippy --locked --all-targets -- -D warnings` if Rust source or tests are changed.
+- [x] Run `cargo test` before merging.
+- [x] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
+- [x] No source behavior unrelated to diagnostics changes.
 
 ## Breaking-Change Notes
 - Diagnostic severity/confidence changes are intentional breaking changes for consumers that fail builds on `error` severity.
