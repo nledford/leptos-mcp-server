@@ -12,6 +12,7 @@ use std::io::{self, BufRead, BufReader, Write};
 
 const JSON_RPC_VERSION: &str = "2.0";
 const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
+pub const MAX_JSON_RPC_LINE_BYTES: usize = 1024 * 1024;
 
 pub struct McpServer {
     tools: LeptosTools,
@@ -51,18 +52,25 @@ enum ProtocolError {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ToolCallParams {
     name: String,
-    #[serde(default)]
+    #[serde(default = "empty_arguments")]
     arguments: Value,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListSectionsArgs {}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DocumentationArgs {
     section: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DiagnosticsArgs {
     code: String,
 }
@@ -81,6 +89,11 @@ struct ToolResult {
     structured_content: Value,
 }
 
+enum LineRead {
+    Line(String),
+    Oversized,
+}
+
 impl McpServer {
     pub fn new() -> Self {
         Self {
@@ -90,12 +103,25 @@ impl McpServer {
 
     pub async fn run(&self) -> Result<()> {
         let stdin = io::stdin();
-        let reader = BufReader::new(stdin.lock());
+        let mut reader = BufReader::new(stdin.lock());
         let mut stdout = io::stdout();
 
-        for line in reader.lines() {
-            let line = match line {
-                Ok(line) => line,
+        loop {
+            let line = match read_limited_line(&mut reader, MAX_JSON_RPC_LINE_BYTES) {
+                Ok(Some(LineRead::Line(line))) => line,
+                Ok(Some(LineRead::Oversized)) => {
+                    let response = JsonRpcResponse::error(
+                        Value::Null,
+                        ProtocolError::InvalidRequest(format!(
+                            "JSON-RPC request line must be at most {MAX_JSON_RPC_LINE_BYTES} bytes"
+                        )),
+                    );
+                    let response_json = serde_json::to_string(&response)?;
+                    writeln!(stdout, "{response_json}")?;
+                    stdout.flush()?;
+                    continue;
+                }
+                Ok(None) => break,
                 Err(error) => {
                     tracing::error!(%error, "failed to read request line");
                     break;
@@ -113,6 +139,15 @@ impl McpServer {
     }
 
     pub async fn handle_line(&self, line: &str) -> Option<JsonRpcResponse> {
+        if line.len() > MAX_JSON_RPC_LINE_BYTES {
+            return Some(JsonRpcResponse::error(
+                Value::Null,
+                ProtocolError::InvalidRequest(format!(
+                    "JSON-RPC request line must be at most {MAX_JSON_RPC_LINE_BYTES} bytes"
+                )),
+            ));
+        }
+
         if line.trim().is_empty() {
             return None;
         }
@@ -219,7 +254,8 @@ impl McpServer {
                         "properties": {
                             "code": {
                                 "type": "string",
-                                "description": "Leptos code to analyze"
+                                "description": "Leptos code to analyze",
+                                "maxLength": crate::tools::MAX_DIAGNOSTIC_CODE_BYTES
                             }
                         },
                         "required": ["code"],
@@ -238,7 +274,10 @@ impl McpServer {
             .map_err(|error| ProtocolError::InvalidParams(error.to_string()))?;
 
         let output = match call.name.as_str() {
-            LIST_SECTIONS_TOOL => self.tools.list_sections(),
+            LIST_SECTIONS_TOOL => {
+                let _: ListSectionsArgs = parse_arguments(call.arguments)?;
+                self.tools.list_sections()
+            }
             GET_DOCUMENTATION_TOOL => {
                 let args: DocumentationArgs = parse_arguments(call.arguments)?;
                 self.tools.get_documentation(&args.section)?
@@ -343,9 +382,78 @@ where
         .map_err(|error| ProtocolError::InvalidParams(error.to_string()))
 }
 
+fn empty_arguments() -> Value {
+    json!({})
+}
+
+fn read_limited_line<R: BufRead>(reader: &mut R, max_bytes: usize) -> io::Result<Option<LineRead>> {
+    let mut bytes = Vec::new();
+
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return if bytes.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(LineRead::Line(decode_line(bytes))))
+            };
+        }
+
+        if let Some(newline_index) = available.iter().position(|byte| *byte == b'\n') {
+            let take = newline_index + 1;
+            if bytes.len() + newline_index > max_bytes {
+                reader.consume(take);
+                return Ok(Some(LineRead::Oversized));
+            }
+            bytes.extend_from_slice(&available[..take]);
+            reader.consume(take);
+            return Ok(Some(LineRead::Line(decode_line(bytes))));
+        }
+
+        let take = available.len();
+        if bytes.len() + take > max_bytes {
+            reader.consume(take);
+            discard_until_newline(reader)?;
+            return Ok(Some(LineRead::Oversized));
+        }
+
+        bytes.extend_from_slice(available);
+        reader.consume(take);
+    }
+}
+
+fn discard_until_newline<R: BufRead>(reader: &mut R) -> io::Result<()> {
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return Ok(());
+        }
+
+        if let Some(newline_index) = available.iter().position(|byte| *byte == b'\n') {
+            reader.consume(newline_index + 1);
+            return Ok(());
+        }
+
+        let take = available.len();
+        reader.consume(take);
+    }
+}
+
+fn decode_line(mut bytes: Vec<u8>) -> String {
+    if bytes.last() == Some(&b'\n') {
+        bytes.pop();
+    }
+    if bytes.last() == Some(&b'\r') {
+        bytes.pop();
+    }
+
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::MAX_DIAGNOSTIC_CODE_BYTES;
 
     fn error_code(response: &JsonRpcResponse) -> i32 {
         response.error.as_ref().expect("expected error").code
@@ -405,6 +513,109 @@ mod tests {
             .handle_line(
                 r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get-documentation","arguments":{}}}"#,
             )
+            .await
+            .expect("request should receive a response");
+
+        assert_eq!(error_code(&response), -32602);
+    }
+
+    #[tokio::test]
+    async fn extra_tool_call_params_are_rejected() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list-sections","arguments":{},"extra":true}}"#,
+            )
+            .await
+            .expect("request should receive a response");
+
+        assert_eq!(error_code(&response), -32602);
+    }
+
+    #[tokio::test]
+    async fn extra_tool_arguments_are_rejected() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get-documentation","arguments":{"section":"signals","extra":true}}}"#,
+            )
+            .await
+            .expect("request should receive a response");
+
+        assert_eq!(error_code(&response), -32602);
+    }
+
+    #[tokio::test]
+    async fn list_sections_rejects_arguments() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list-sections","arguments":{"extra":true}}}"#,
+            )
+            .await
+            .expect("request should receive a response");
+
+        assert_eq!(error_code(&response), -32602);
+    }
+
+    #[tokio::test]
+    async fn list_sections_accepts_missing_arguments() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list-sections"}}"#,
+            )
+            .await
+            .expect("request should receive a response");
+
+        assert!(result(&response)["structuredContent"]["sections"].is_array());
+    }
+
+    #[tokio::test]
+    async fn oversized_json_rpc_line_is_rejected() {
+        let server = McpServer::new();
+        let oversized = format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"tools/list","padding":"{}"}}"#,
+            "x".repeat(MAX_JSON_RPC_LINE_BYTES)
+        );
+        let response = server
+            .handle_line(&oversized)
+            .await
+            .expect("oversized requests should receive a response");
+
+        assert_eq!(error_code(&response), -32600);
+    }
+
+    #[test]
+    fn max_sized_stdin_line_with_newline_is_accepted() {
+        let input = format!("{}\n", "x".repeat(MAX_JSON_RPC_LINE_BYTES));
+        let mut reader = BufReader::new(input.as_bytes());
+        let line = read_limited_line(&mut reader, MAX_JSON_RPC_LINE_BYTES)
+            .expect("line reader should succeed")
+            .expect("line should be present");
+
+        match line {
+            LineRead::Line(line) => assert_eq!(line.len(), MAX_JSON_RPC_LINE_BYTES),
+            LineRead::Oversized => panic!("line at the exact limit should be accepted"),
+        }
+    }
+
+    #[tokio::test]
+    async fn oversized_diagnostics_code_is_rejected() {
+        let server = McpServer::new();
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "leptos-diagnostics",
+                "arguments": {
+                    "code": "x".repeat(MAX_DIAGNOSTIC_CODE_BYTES + 1)
+                }
+            }
+        });
+        let response = server
+            .handle_line(&request.to_string())
             .await
             .expect("request should receive a response");
 

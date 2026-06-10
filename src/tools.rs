@@ -7,6 +7,7 @@ use serde::Serialize;
 pub const LIST_SECTIONS_TOOL: &str = "list-sections";
 pub const GET_DOCUMENTATION_TOOL: &str = "get-documentation";
 pub const LEPTOS_DIAGNOSTICS_TOOL: &str = "leptos-diagnostics";
+pub const MAX_DIAGNOSTIC_CODE_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolError {
@@ -102,6 +103,11 @@ impl LeptosTools {
                 "code must be a non-empty string".to_string(),
             ));
         }
+        if code.len() > MAX_DIAGNOSTIC_CODE_BYTES {
+            return Err(ToolError::InvalidParams(format!(
+                "code must be at most {MAX_DIAGNOSTIC_CODE_BYTES} bytes"
+            )));
+        }
 
         let output = LeptosDiagnostics::analyze(code);
 
@@ -189,5 +195,19 @@ mod tests {
             .expect_err("empty code must fail");
 
         assert_eq!(error.message(), "code must be a non-empty string");
+    }
+
+    #[test]
+    fn diagnostics_reject_oversized_code() {
+        let tools = LeptosTools::new();
+        let code = "x".repeat(MAX_DIAGNOSTIC_CODE_BYTES + 1);
+        let error = tools
+            .diagnose_leptos_code(&code)
+            .expect_err("oversized code must fail");
+
+        assert_eq!(
+            error.message(),
+            format!("code must be at most {MAX_DIAGNOSTIC_CODE_BYTES} bytes")
+        );
     }
 }
