@@ -35,17 +35,17 @@ Ensure snippets labeled compile-checkable are actually compiled, while illustrat
 
 ## TODOs
 
-- [ ] 1. Add snippet inventory tests first
+- [x] 1. Add snippet inventory tests first
   **What**: Test that `docs::rust_code_blocks()` returns expected section IDs/classifications and add equivalent recipe snippet enumeration for `RecipeFile { language: "rust" }`.
   **Files**: `src/docs.rs`, `src/recipes.rs`
   **Acceptance**: Tests expose which snippets are compile candidates versus illustrative before remediation.
 
-- [ ] 2. Define classification policy
+- [x] 2. Define classification policy
   **What**: Document in code or docs what makes a snippet compile-candidate, illustrative, or ignore, including whether fragments need wrappers.
   **Files**: `src/docs.rs`, `src/recipes.rs`, `README.md`
   **Acceptance**: Contributors can classify new snippets without guessing.
 
-- [ ] 3. Create compile-check fixture strategy
+- [x] 3. Create compile-check fixture strategy
   **What**: Add a test-only fixture approach that wraps compile candidates with required imports/stubs or writes temporary files under a test-controlled target/temp directory.
   **Files**: `tests/snippets.rs`, `src/docs.rs`, `src/recipes.rs`
   **Acceptance**: At least one docs snippet and one recipe snippet marked `CompileCandidate` are compiled in tests.
