@@ -4,11 +4,18 @@ An MCP (Model Context Protocol) server providing comprehensive Leptos documentat
 
 ## Features
 
-| Tool                | Description                                                     |
-| ------------------- | --------------------------------------------------------------- |
-| `list-sections`     | List all available Leptos documentation sections with use cases |
-| `get-documentation` | Retrieve documentation by canonical section id or declared alias|
-| `leptos-diagnostics`| Analyze Leptos code and return structured diagnostics           |
+| Tool                  | Description                                                      |
+| --------------------- | ---------------------------------------------------------------- |
+| `list-sections`       | List all available documentation sections with task metadata      |
+| `get-documentation`   | Retrieve documentation by canonical section id or declared alias  |
+| `search-docs`         | Search documentation by task, API, or failure mode                |
+| `lookup-api`          | Look up curated Leptos, leptos_axum, or Axum public API symbols   |
+| `leptos-axum-recipe`  | Return task recipes for common Leptos + Axum workflows            |
+| `leptos-diagnostics`  | Analyze Leptos code and return structured diagnostics             |
+
+This server also exposes embedded documentation as MCP resources and provides
+workflow prompts for SSR wiring, server functions, hydration debugging, and
+Axum integration review.
 
 ## Documentation Sections
 
@@ -25,6 +32,9 @@ An MCP (Model Context Protocol) server providing comprehensive Leptos documentat
 | **Forms**            | Controlled inputs, `prop:value`, validation                        |
 | **Error Handling**   | `ErrorBoundary`, `ServerFnError`                                   |
 | **Suspense**         | `<Suspense>`, `<Transition>`, loading states                       |
+| **Leptos Axum**      | `LeptosRoutes`, `handle_server_fns`, extractors, response options  |
+| **Axum 0.8.9**       | `Router`, `State`, extractors, middleware, `IntoResponse`          |
+| **SSR/Hydration**    | Feature flags, static files, deployment, hydration debugging       |
 
 ## Installation
 
@@ -64,6 +74,21 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get-docume
 
 # Test diagnostics
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"leptos-diagnostics","arguments":{"code":"fn App() -> impl IntoView { view! { <p>{count.get()}</p> } }"}}}' | ./target/release/leptos-mcp-server 2>/dev/null
+
+# Search documentation
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search-docs","arguments":{"query":"Axum state"}}}' | ./target/release/leptos-mcp-server 2>/dev/null
+
+# Look up an API symbol
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"lookup-api","arguments":{"query":"ResponseOptions","crate":"leptos_axum"}}}' | ./target/release/leptos-mcp-server 2>/dev/null
+
+# Get a Leptos + Axum recipe
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"leptos-axum-recipe","arguments":{"recipe":"ssr-app"}}}' | ./target/release/leptos-mcp-server 2>/dev/null
+
+# List resources
+echo '{"jsonrpc":"2.0","id":1,"method":"resources/list","params":{}}' | ./target/release/leptos-mcp-server 2>/dev/null
+
+# List prompts
+echo '{"jsonrpc":"2.0","id":1,"method":"prompts/list","params":{}}' | ./target/release/leptos-mcp-server 2>/dev/null
 ```
 
 ## Development
@@ -92,8 +117,12 @@ Tool arguments are validated strictly against the advertised schemas. Extra
 fields are rejected. Individual JSON-RPC request lines are limited to 1 MiB,
 and `leptos-diagnostics` accepts code payloads up to 256 KiB.
 
-Documentation responses include the embedded source path, reviewed date, and
-target Leptos version scope for each section.
+Documentation responses include the embedded source path, source URL, reviewed
+date, target crate versions, related sections, task tags, common errors,
+relevant APIs, and snippet classification for each section.
+
+Leptos API references target Leptos 0.8.19. `leptos_axum` references target
+0.8.9, and Axum references target Axum 0.8.9.
 
 ## License
 
