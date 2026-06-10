@@ -2,12 +2,16 @@
 //!
 //! The server speaks newline-delimited JSON-RPC 2.0 over stdio.
 
+use crate::docs;
+use crate::prompts;
 use crate::tools::{
-    LeptosTools, ToolError, GET_DOCUMENTATION_TOOL, LEPTOS_DIAGNOSTICS_TOOL, LIST_SECTIONS_TOOL,
+    LeptosTools, ToolError, GET_DOCUMENTATION_TOOL, LEPTOS_AXUM_RECIPE_TOOL,
+    LEPTOS_DIAGNOSTICS_TOOL, LIST_SECTIONS_TOOL, LOOKUP_API_TOOL, SEARCH_DOCS_TOOL,
 };
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Write};
 
 const JSON_RPC_VERSION: &str = "2.0";
@@ -73,6 +77,40 @@ struct DocumentationArgs {
 #[serde(deny_unknown_fields)]
 struct DiagnosticsArgs {
     code: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SearchDocsArgs {
+    query: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApiLookupArgs {
+    query: String,
+    #[serde(default, rename = "crate")]
+    crate_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecipeArgs {
+    recipe: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResourceReadParams {
+    uri: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PromptGetParams {
+    name: String,
+    #[serde(default)]
+    arguments: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -202,6 +240,10 @@ impl McpServer {
             "initialize" => Ok(self.handle_initialize()),
             "tools/list" => Ok(self.handle_list_tools()),
             "tools/call" => self.handle_call_tool(request.params),
+            "resources/list" => Ok(self.handle_list_resources()),
+            "resources/read" => self.handle_read_resource(request.params),
+            "prompts/list" => Ok(self.handle_list_prompts()),
+            "prompts/get" => self.handle_get_prompt(request.params),
             method => Err(ProtocolError::MethodNotFound(method.to_string())),
         }
     }
@@ -210,7 +252,9 @@ impl McpServer {
         json!({
             "protocolVersion": MCP_PROTOCOL_VERSION,
             "capabilities": {
-                "tools": {}
+                "tools": {},
+                "resources": {},
+                "prompts": {}
             },
             "serverInfo": {
                 "name": "leptos-mcp-server",
@@ -261,6 +305,56 @@ impl McpServer {
                         "required": ["code"],
                         "additionalProperties": false
                     }
+                },
+                {
+                    "name": SEARCH_DOCS_TOOL,
+                    "description": "Search Leptos, leptos_axum, and Axum documentation sections by task, API, or failure mode",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Task, API, error, or workflow to search for"
+                            }
+                        },
+                        "required": ["query"],
+                        "additionalProperties": false
+                    }
+                },
+                {
+                    "name": LOOKUP_API_TOOL,
+                    "description": "Look up a curated Leptos, leptos_axum, or Axum public API symbol",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Symbol name or declared alias"
+                            },
+                            "crate": {
+                                "type": "string",
+                                "description": "Optional crate filter: leptos, leptos_axum, or axum",
+                                "enum": ["leptos", "leptos_axum", "axum"]
+                            }
+                        },
+                        "required": ["query"],
+                        "additionalProperties": false
+                    }
+                },
+                {
+                    "name": LEPTOS_AXUM_RECIPE_TOOL,
+                    "description": "Return a task-oriented recipe for common Leptos + Axum workflows",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "recipe": {
+                                "type": "string",
+                                "description": "Recipe id or alias such as ssr-app, server-functions, static-assets, custom-handler, state-context, or wasm-runtime"
+                            }
+                        },
+                        "required": ["recipe"],
+                        "additionalProperties": false
+                    }
                 }
             ]
         })
@@ -286,6 +380,19 @@ impl McpServer {
                 let args: DiagnosticsArgs = parse_arguments(call.arguments)?;
                 self.tools.diagnose_leptos_code(&args.code)?
             }
+            SEARCH_DOCS_TOOL => {
+                let args: SearchDocsArgs = parse_arguments(call.arguments)?;
+                self.tools.search_docs(&args.query)?
+            }
+            LOOKUP_API_TOOL => {
+                let args: ApiLookupArgs = parse_arguments(call.arguments)?;
+                self.tools
+                    .lookup_api(&args.query, args.crate_name.as_deref())?
+            }
+            LEPTOS_AXUM_RECIPE_TOOL => {
+                let args: RecipeArgs = parse_arguments(call.arguments)?;
+                self.tools.leptos_axum_recipe(&args.recipe)?
+            }
             _ => return Err(ToolError::UnknownTool(call.name).into()),
         };
 
@@ -300,6 +407,82 @@ impl McpServer {
 
         serde_json::to_value(result)
             .map_err(|error| ProtocolError::InternalError(error.to_string()))
+    }
+
+    fn handle_list_resources(&self) -> Value {
+        let resources = docs::list_sections()
+            .iter()
+            .map(|section| {
+                json!({
+                    "uri": docs::resource_uri(section),
+                    "name": section.title,
+                    "description": section.use_cases,
+                    "mimeType": "text/markdown"
+                })
+            })
+            .collect::<Vec<_>>();
+
+        json!({ "resources": resources })
+    }
+
+    fn handle_read_resource(&self, params: Option<Value>) -> Result<Value, ProtocolError> {
+        let params = params.ok_or_else(|| {
+            ProtocolError::InvalidParams("resources/read params are required".to_string())
+        })?;
+        let params: ResourceReadParams = serde_json::from_value(params)
+            .map_err(|error| ProtocolError::InvalidParams(error.to_string()))?;
+        let section = docs::get_section_by_resource_uri(&params.uri).map_err(|error| {
+            ProtocolError::InvalidParams(ToolError::DocumentationLookup(error).message())
+        })?;
+
+        Ok(json!({
+            "contents": [
+                {
+                    "uri": params.uri,
+                    "mimeType": "text/markdown",
+                    "text": format!("# {}\n\n{}", section.title, section.content)
+                }
+            ]
+        }))
+    }
+
+    fn handle_list_prompts(&self) -> Value {
+        let prompts = prompts::all_prompts()
+            .iter()
+            .map(|prompt| {
+                json!({
+                    "name": prompt.name,
+                    "description": prompt.description,
+                    "arguments": prompt.arguments
+                })
+            })
+            .collect::<Vec<_>>();
+
+        json!({ "prompts": prompts })
+    }
+
+    fn handle_get_prompt(&self, params: Option<Value>) -> Result<Value, ProtocolError> {
+        let params = params.ok_or_else(|| {
+            ProtocolError::InvalidParams("prompts/get params are required".to_string())
+        })?;
+        let params: PromptGetParams = serde_json::from_value(params)
+            .map_err(|error| ProtocolError::InvalidParams(error.to_string()))?;
+        let prompt = prompts::get_prompt(&params.name)
+            .map_err(|error| ProtocolError::InvalidParams(prompt_error_message(error)))?;
+        let text = prompts::render_prompt(prompt, &params.arguments);
+
+        Ok(json!({
+            "description": prompt.description,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": text
+                    }
+                }
+            ]
+        }))
     }
 }
 
@@ -371,6 +554,13 @@ fn validate_jsonrpc_version(request: &JsonRpcRequest) -> Result<(), ProtocolErro
         None => Err(ProtocolError::InvalidRequest(
             "missing JSON-RPC version".to_string(),
         )),
+    }
+}
+
+fn prompt_error_message(error: prompts::PromptLookupError) -> String {
+    match error {
+        prompts::PromptLookupError::Empty => "prompt name must be non-empty".to_string(),
+        prompts::PromptLookupError::Unknown { name } => format!("Unknown prompt: {name}"),
     }
 }
 
@@ -569,6 +759,123 @@ mod tests {
             .expect("request should receive a response");
 
         assert!(result(&response)["structuredContent"]["sections"].is_array());
+    }
+
+    #[tokio::test]
+    async fn initialize_advertises_resources_and_prompts() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#)
+            .await
+            .expect("initialize should receive a response");
+
+        let capabilities = &result(&response)["capabilities"];
+        assert!(capabilities["tools"].is_object());
+        assert!(capabilities["resources"].is_object());
+        assert!(capabilities["prompts"].is_object());
+    }
+
+    #[tokio::test]
+    async fn tools_list_includes_search_api_lookup_and_recipes() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#)
+            .await
+            .expect("tools/list should receive a response");
+
+        let names: Vec<&str> = result(&response)["tools"]
+            .as_array()
+            .expect("tools should be an array")
+            .iter()
+            .map(|tool| tool["name"].as_str().expect("tool should have name"))
+            .collect();
+
+        assert!(names.contains(&SEARCH_DOCS_TOOL));
+        assert!(names.contains(&LOOKUP_API_TOOL));
+        assert!(names.contains(&LEPTOS_AXUM_RECIPE_TOOL));
+    }
+
+    #[tokio::test]
+    async fn api_lookup_tool_returns_symbol_metadata() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"lookup-api","arguments":{"query":"ResponseOptions","crate":"leptos_axum"}}}"#,
+            )
+            .await
+            .expect("request should receive a response");
+
+        assert_eq!(
+            result(&response)["structuredContent"]["symbol"]["name"],
+            "leptos_axum::ResponseOptions"
+        );
+    }
+
+    #[tokio::test]
+    async fn recipe_tool_returns_workflow_files() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"leptos-axum-recipe","arguments":{"recipe":"ssr-app"}}}"#,
+            )
+            .await
+            .expect("request should receive a response");
+
+        assert!(result(&response)["structuredContent"]["recipe"]["files"].is_array());
+    }
+
+    #[tokio::test]
+    async fn resources_list_and_read_expose_documentation_sections() {
+        let server = McpServer::new();
+        let list = server
+            .handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"resources/list","params":{}}"#)
+            .await
+            .expect("resources/list should receive a response");
+
+        assert!(result(&list)["resources"]
+            .as_array()
+            .expect("resources should be an array")
+            .iter()
+            .any(|resource| resource["uri"] == "leptos://docs/axum"));
+
+        let read = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"leptos://docs/axum"}}"#,
+            )
+            .await
+            .expect("resources/read should receive a response");
+
+        assert!(result(&read)["contents"][0]["text"]
+            .as_str()
+            .expect("text content should exist")
+            .contains("Axum 0.8.9"));
+    }
+
+    #[tokio::test]
+    async fn prompts_list_and_get_render_workflow_prompt() {
+        let server = McpServer::new();
+        let list = server
+            .handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"prompts/list","params":{}}"#)
+            .await
+            .expect("prompts/list should receive a response");
+
+        assert!(result(&list)["prompts"]
+            .as_array()
+            .expect("prompts should be an array")
+            .iter()
+            .any(|prompt| prompt["name"] == "debug-hydration"));
+
+        let prompt = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":2,"method":"prompts/get","params":{"name":"debug-hydration","arguments":{"symptom":"WASM 404"}}}"#,
+            )
+            .await
+            .expect("prompts/get should receive a response");
+
+        assert!(result(&prompt)["messages"][0]["content"]["text"]
+            .as_str()
+            .expect("prompt text should exist")
+            .contains("WASM 404"));
     }
 
     #[tokio::test]
