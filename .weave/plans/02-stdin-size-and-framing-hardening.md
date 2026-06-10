@@ -39,46 +39,46 @@ Guarantee bounded memory and bounded response behavior for oversized, malformed,
 
 ## TODOs
 
-- [ ] 1. Add unit regression for unterminated oversized reads
+- [x] 1. Add unit regression for unterminated oversized reads
   **What**: Test `read_limited_line` with input longer than `MAX_JSON_RPC_LINE_BYTES` and no trailing newline; assert it returns `LineRead::Oversized` promptly.
   **Files**: `src/protocol.rs`
   **Acceptance**: The test captures the intended behavior before implementation and passes after the reader is hardened.
 
-- [ ] 2. Add instrumented hard-cap reader regression
+- [x] 2. Add instrumented hard-cap reader regression
   **What**: Add an instrumented `BufRead`/reader test that feeds exactly `MAX_JSON_RPC_LINE_BYTES + 1` bytes without a newline and records reader operations.
   **Files**: `src/protocol.rs`
   **Acceptance**: The test proves `read_limited_line` returns `LineRead::Oversized` immediately after observing byte `MAX_JSON_RPC_LINE_BYTES + 1`, does not call `discard_until_newline`, and performs no further `fill_buf` reads beyond the hard cap.
 
-- [ ] 3. Add process-level live-client stdio regression
+- [x] 3. Add process-level live-client stdio regression
   **What**: Add an integration test that starts the server process, writes oversized unterminated JSON-RPC-ish input, keeps stdin open, and waits with a bounded timeout for stdout.
   **Files**: `tests/stdio.rs`
   **Acceptance**: The test observes one JSON-RPC `-32600` response with `id: null` before stdin is closed and fails fast on timeout, proving the live-client DoS is fixed rather than only EOF behavior.
 
-- [ ] 4. Harden bounded read implementation
+- [x] 4. Harden bounded read implementation
   **What**: Ensure `read_limited_line` consumes at most the bounded frame, returns `Oversized` as soon as the limit is exceeded, and cannot loop indefinitely waiting for a newline after EOF/oversize.
   **Files**: `src/protocol.rs`
   **Acceptance**: Reader behavior is deterministic for newline, EOF, exact-limit, limit-plus-one, and invalid UTF-8 inputs.
 
-- [ ] 5. Review JSON-RPC error semantics
+- [x] 5. Review JSON-RPC error semantics
   **What**: Confirm oversized frames return `InvalidRequest` with `id: null`; document why request ID cannot be trusted/read after rejecting oversized input.
   **Files**: `src/protocol.rs`
   **Acceptance**: Unit tests assert `-32600` and `id == null` for oversized read-path errors.
 
-- [ ] 6. Prepare Warp security review note
+- [x] 6. Prepare Warp security review note
   **What**: Add a concise release/changelog note identifying the DoS class, fixed bound, and residual absence of wall-clock read timeouts for clients that keep pipes open without exceeding the limit.
   **Files**: `CHANGELOG.md`
   **Acceptance**: Note is marked security-sensitive and ready for Warp review.
 
 ## Verification
-- [ ] Run `cargo test protocol::tests::max_sized_stdin_line_with_newline_is_accepted`.
-- [ ] Run `cargo test protocol::tests::oversized_unterminated_stdin_line_is_rejected`.
-- [ ] Run `cargo test protocol::tests::read_limited_line_stops_at_hard_cap_without_discard`.
-- [ ] Run `cargo test stdio_process_rejects_oversized_unterminated_live_input_before_stdin_close`.
-- [ ] Run `cargo test --test stdio`.
-- [ ] Run `cargo fmt -- --check`.
-- [ ] Run `cargo clippy --locked --all-targets -- -D warnings`.
-- [ ] Run `cargo test` before merging.
-- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
+- [x] Run `cargo test protocol::tests::max_sized_stdin_line_with_newline_is_accepted`.
+- [x] Run `cargo test protocol::tests::oversized_unterminated_stdin_line_is_rejected`.
+- [x] Run `cargo test protocol::tests::read_limited_line_stops_at_hard_cap_without_discard`.
+- [x] Run `cargo test stdio_process_rejects_oversized_unterminated_live_input_before_stdin_close`.
+- [x] Run `cargo test --test stdio`.
+- [x] Run `cargo fmt -- --check`.
+- [x] Run `cargo clippy --locked --all-targets -- -D warnings`.
+- [x] Run `cargo test` before merging.
+- [x] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 
 ## Breaking-Change Notes
 - Behavior-preserving for valid clients.
