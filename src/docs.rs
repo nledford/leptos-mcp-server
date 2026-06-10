@@ -4,6 +4,7 @@ use serde::Serialize;
 
 const LEPTOS_VERSION_SCOPE: &str = "Leptos 0.8+";
 const DOCUMENTATION_SOURCE: &str = "embedded project documentation";
+const REVIEWED_AT: &str = "2026-06-10";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct DocSection {
@@ -15,6 +16,8 @@ pub struct DocSection {
     pub aliases: &'static [&'static str],
     pub leptos_version: &'static str,
     pub source: &'static str,
+    pub source_path: &'static str,
+    pub reviewed_at: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +37,8 @@ static SECTIONS: &[DocSection] = &[
         aliases: &["start", "setup", "installation"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
+        source_path: "docs/getting-started.md",
+        reviewed_at: REVIEWED_AT,
     },
     DocSection {
         id: "components",
@@ -44,6 +49,8 @@ static SECTIONS: &[DocSection] = &[
         aliases: &["component", "props", "children"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
+        source_path: "docs/components.md",
+        reviewed_at: REVIEWED_AT,
     },
     DocSection {
         id: "signals",
@@ -54,6 +61,8 @@ static SECTIONS: &[DocSection] = &[
         aliases: &["signal", "reactivity", "state"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
+        source_path: "docs/signals.md",
+        reviewed_at: REVIEWED_AT,
     },
     DocSection {
         id: "views",
@@ -64,6 +73,8 @@ static SECTIONS: &[DocSection] = &[
         aliases: &["view", "view-macro", "classes", "styles"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
+        source_path: "docs/views.md",
+        reviewed_at: REVIEWED_AT,
     },
     DocSection {
         id: "resources",
@@ -74,6 +85,8 @@ static SECTIONS: &[DocSection] = &[
         aliases: &["resource", "async-data", "data-loading"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
+        source_path: "docs/resources.md",
+        reviewed_at: REVIEWED_AT,
     },
     DocSection {
         id: "actions",
@@ -84,6 +97,8 @@ static SECTIONS: &[DocSection] = &[
         aliases: &["action", "mutations", "server-action"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
+        source_path: "docs/actions.md",
+        reviewed_at: REVIEWED_AT,
     },
     DocSection {
         id: "server-functions",
@@ -94,6 +109,8 @@ static SECTIONS: &[DocSection] = &[
         aliases: &["server", "server-fn", "server-functions"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
+        source_path: "docs/server-functions.md",
+        reviewed_at: REVIEWED_AT,
     },
     DocSection {
         id: "routing",
@@ -104,6 +121,8 @@ static SECTIONS: &[DocSection] = &[
         aliases: &["routes", "router", "navigation"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
+        source_path: "docs/routing.md",
+        reviewed_at: REVIEWED_AT,
     },
     DocSection {
         id: "forms",
@@ -114,6 +133,8 @@ static SECTIONS: &[DocSection] = &[
         aliases: &["form", "inputs", "validation"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
+        source_path: "docs/forms.md",
+        reviewed_at: REVIEWED_AT,
     },
     DocSection {
         id: "error-handling",
@@ -124,6 +145,8 @@ static SECTIONS: &[DocSection] = &[
         aliases: &["errors", "error-boundary", "server-fn-error"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
+        source_path: "docs/error-handling.md",
+        reviewed_at: REVIEWED_AT,
     },
     DocSection {
         id: "suspense",
@@ -134,6 +157,8 @@ static SECTIONS: &[DocSection] = &[
         aliases: &["transition", "loading", "streaming"],
         leptos_version: LEPTOS_VERSION_SCOPE,
         source: DOCUMENTATION_SOURCE,
+        source_path: "docs/suspense.md",
+        reviewed_at: REVIEWED_AT,
     },
 ];
 
@@ -231,6 +256,16 @@ mod tests {
                 "duplicate section id {}",
                 section.id
             );
+        }
+    }
+
+    #[test]
+    fn sections_have_provenance_metadata() {
+        for section in list_sections() {
+            assert!(!section.leptos_version.is_empty());
+            assert!(!section.source.is_empty());
+            assert!(!section.source_path.is_empty());
+            assert!(!section.reviewed_at.is_empty());
         }
     }
 }

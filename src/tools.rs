@@ -25,6 +25,8 @@ pub struct SectionSummary {
     pub aliases: &'static [&'static str],
     pub leptos_version: &'static str,
     pub source: &'static str,
+    pub source_path: &'static str,
+    pub reviewed_at: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -133,6 +135,8 @@ fn section_summary(section: &DocSection) -> SectionSummary {
         aliases: section.aliases,
         leptos_version: section.leptos_version,
         source: section.source,
+        source_path: section.source_path,
+        reviewed_at: section.reviewed_at,
     }
 }
 
