@@ -11,12 +11,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install MSRV
+        run: rustup toolchain install 1.96.0 --profile minimal
+      - name: Check MSRV
+        run: cargo +1.96.0 check --locked
       - name: Format
         run: cargo fmt -- --check
       - name: Test
         run: cargo test --locked
       - name: Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Build release
+        run: cargo build --release --locked
+      - name: Binary smoke
+        run: |
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+            | ./target/release/leptos-mcp-server
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Coverage
+        run: cargo llvm-cov --locked --summary-only --fail-under-lines 70
       - name: Install cargo-audit
         uses: taiki-e/install-action@cargo-audit
       - name: Audit
