@@ -88,6 +88,13 @@ lookup requires a canonical section id or declared alias from `list-sections`;
 partial substring lookup is intentionally rejected to avoid returning plausible
 but incorrect documentation.
 
+Tool arguments are validated strictly against the advertised schemas. Extra
+fields are rejected. Individual JSON-RPC request lines are limited to 1 MiB,
+and `leptos-diagnostics` accepts code payloads up to 256 KiB.
+
+Documentation responses include the embedded source path, reviewed date, and
+target Leptos version scope for each section.
+
 ## License
 
 MIT
