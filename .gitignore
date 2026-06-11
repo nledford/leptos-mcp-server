@@ -19,5 +19,4 @@ Thumbs.db
 
 /.ignore
 /_ignore
-/.weave/runtime/
-/.weave/state.json
+/.weave/
