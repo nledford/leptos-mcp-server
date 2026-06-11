@@ -70,7 +70,7 @@ fn get_documentation_characterizes_section_output_text_and_lookup_errors() {
             .get_documentation("missing-section")
             .expect_err("unknown section should be rejected")
             .message(),
-        "Unknown documentation section: missing-section"
+        "Unknown documentation section"
     );
 }
 
@@ -200,14 +200,14 @@ fn lookup_api_characterizes_symbol_text_structured_output_and_errors() {
             .lookup_api("nope", Some("leptos"))
             .expect_err("unknown API lookup should be rejected")
             .message(),
-        "Unknown API symbol in crate leptos: nope"
+        "Unknown API symbol"
     );
     assert_eq!(
         tools
             .lookup_api("extractor", None)
             .expect_err("ambiguous API lookup should be rejected")
             .message(),
-        "Ambiguous API symbol 'extractor'. Matching symbols: leptos_axum::extract, leptos_axum::extract_with_state, axum::Json"
+        "Ambiguous API symbol. Matching symbols: leptos_axum::extract, leptos_axum::extract_with_state, axum::Json"
     );
 }
 
@@ -253,6 +253,6 @@ fn leptos_axum_recipe_characterizes_recipe_text_structured_output_and_errors() {
             .leptos_axum_recipe("missing-recipe")
             .expect_err("unknown recipe should be rejected")
             .message(),
-        "Unknown Leptos Axum recipe: missing-recipe"
+        "Unknown Leptos Axum recipe"
     );
 }

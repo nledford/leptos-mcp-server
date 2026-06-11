@@ -57,8 +57,8 @@ impl fmt::Display for PromptRenderError {
                 f,
                 "prompt `{prompt_name}` has blank required argument: {name}"
             ),
-            PromptRenderError::UnknownArgument { prompt_name, name } => {
-                write!(f, "prompt `{prompt_name}` has unknown argument: {name}")
+            PromptRenderError::UnknownArgument { prompt_name, .. } => {
+                write!(f, "prompt `{prompt_name}` has unknown argument")
             }
         }
     }
@@ -374,7 +374,7 @@ mod tests {
         );
         assert_eq!(
             error.to_string(),
-            "prompt `debug-hydration` has unknown argument: extra"
+            "prompt `debug-hydration` has unknown argument"
         );
     }
 

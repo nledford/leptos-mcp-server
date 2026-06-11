@@ -118,6 +118,23 @@ Logging is controlled with `RUST_LOG`. If unset, the server defaults to
 `leptos_mcp_server=info`. Logs are written to stderr so stdout remains reserved
 for JSON-RPC responses.
 
+### Network transports deferred
+
+Only stdio is implemented and it is the default/current transport. Network
+transports (`streamable-http`/`http` and `sse`) are feature-deferred and
+unsupported: those transport selections fail closed before tracing or server startup,
+and no network listener is started. The documented
+future safe host default is `127.0.0.1`; a network port would need to be provided
+explicitly.
+
+Do not expose this server as a public network service without adding and testing
+separate production controls. Because network transports are disabled, this
+project does not currently configure a network authentication layer, CORS
+allowlist policy, HTTP request body/message limits, or read/request/handler timeouts.
+There is no default wildcard CORS policy. Network support remains
+deferred until those guardrails, including sanitized malformed-input handling,
+can be configured and verified.
+
 ## Agent Skill
 
 This repository includes an optional Agent Skill for agents that support the

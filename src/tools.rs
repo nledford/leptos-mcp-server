@@ -293,40 +293,36 @@ impl ToolError {
     pub fn message(&self) -> String {
         match self {
             ToolError::InvalidParams(message) => message.clone(),
-            ToolError::UnknownTool(name) => format!("Unknown tool: {name}"),
+            ToolError::UnknownTool(_) => "Unknown tool".to_string(),
             ToolError::DocumentationLookup(SectionLookupError::Empty) => {
                 "section must be a non-empty canonical id or alias".to_string()
             }
-            ToolError::DocumentationLookup(SectionLookupError::Unknown { query }) => {
-                format!("Unknown documentation section: {query}")
+            ToolError::DocumentationLookup(SectionLookupError::Unknown { .. }) => {
+                "Unknown documentation section".to_string()
             }
-            ToolError::DocumentationLookup(SectionLookupError::Ambiguous { query, matches }) => {
+            ToolError::DocumentationLookup(SectionLookupError::Ambiguous { matches, .. }) => {
                 format!(
-                    "Ambiguous documentation section '{query}'. Matching sections: {}",
+                    "Ambiguous documentation section. Matching sections: {}",
                     matches.join(", ")
                 )
             }
             ToolError::ApiLookup(ApiLookupError::Empty) => {
                 "query must be a non-empty API symbol or alias".to_string()
             }
-            ToolError::ApiLookup(ApiLookupError::Unknown { query, crate_name }) => {
-                let scope = crate_name
-                    .as_deref()
-                    .map(|name| format!(" in crate {name}"))
-                    .unwrap_or_default();
-                format!("Unknown API symbol{scope}: {query}")
+            ToolError::ApiLookup(ApiLookupError::Unknown { .. }) => {
+                "Unknown API symbol".to_string()
             }
-            ToolError::ApiLookup(ApiLookupError::Ambiguous { query, matches }) => {
+            ToolError::ApiLookup(ApiLookupError::Ambiguous { matches, .. }) => {
                 format!(
-                    "Ambiguous API symbol '{query}'. Matching symbols: {}",
+                    "Ambiguous API symbol. Matching symbols: {}",
                     matches.join(", ")
                 )
             }
             ToolError::RecipeLookup(RecipeLookupError::Empty) => {
                 "recipe must be a non-empty recipe id or alias".to_string()
             }
-            ToolError::RecipeLookup(RecipeLookupError::Unknown { recipe }) => {
-                format!("Unknown Leptos Axum recipe: {recipe}")
+            ToolError::RecipeLookup(RecipeLookupError::Unknown { .. }) => {
+                "Unknown Leptos Axum recipe".to_string()
             }
         }
     }
@@ -406,7 +402,7 @@ mod tests {
 
         assert_eq!(
             error.message(),
-            "Ambiguous API symbol 'extractor'. Matching symbols: leptos_axum::extract, leptos_axum::extract_with_state, axum::Json"
+            "Ambiguous API symbol. Matching symbols: leptos_axum::extract, leptos_axum::extract_with_state, axum::Json"
         );
     }
 

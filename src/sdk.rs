@@ -10,9 +10,8 @@ use rust_mcp_sdk::macros::{JsonSchema, mcp_resource_template, mcp_tool};
 use rust_mcp_sdk::schema::schema_utils::CallToolError;
 use rust_mcp_sdk::tool_box;
 use rust_mcp_sdk::{
-    McpServer, StdioTransport, ToMcpServerHandler, TransportOptions,
-    error::SdkResult,
-    mcp_server::{McpServerOptions, ServerHandler, ServerRuntime, server_runtime},
+    McpServer,
+    mcp_server::ServerHandler,
     schema::{
         CallToolRequestParams, CallToolResult, ContentBlock, GetPromptRequestParams,
         GetPromptResult, Implementation, InitializeResult, ListPromptsResult,
@@ -23,6 +22,14 @@ use rust_mcp_sdk::{
         ServerCapabilitiesPrompts, ServerCapabilitiesResources, ServerCapabilitiesTools,
         TextContent, TextResourceContents,
     },
+};
+#[cfg(feature = "stdio")]
+use rust_mcp_sdk::{StdioTransport, TransportOptions};
+#[cfg(feature = "stdio")]
+use rust_mcp_sdk::{
+    ToMcpServerHandler,
+    error::SdkResult,
+    mcp_server::{McpServerOptions, server_runtime},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -185,7 +192,11 @@ impl LeptosSdkHandler {
                     recipe: &tool.recipe,
                 })
             }
-            _ => return Ok(tool_error_result(CallToolError::unknown_tool(tool_name))),
+            _ => {
+                return Ok(tool_error_result(CallToolError::from_message(
+                    "Unknown tool",
+                )));
+            }
         };
 
         Ok(match result {
@@ -433,7 +444,7 @@ fn prompt_message_to_sdk_message(
 fn prompt_lookup_error_message(error: crate::prompts::PromptLookupError) -> String {
     match error {
         crate::prompts::PromptLookupError::Empty => "prompt name must be non-empty".to_string(),
-        crate::prompts::PromptLookupError::Unknown { name } => format!("Unknown prompt: {name}"),
+        crate::prompts::PromptLookupError::Unknown { .. } => "Unknown prompt".to_string(),
     }
 }
 
@@ -461,7 +472,7 @@ where
 
 fn tool_domain_error_result(error: ToolError) -> CallToolResult {
     match error {
-        ToolError::UnknownTool(name) => tool_error_result(CallToolError::unknown_tool(name)),
+        ToolError::UnknownTool(_) => tool_error_result(CallToolError::from_message("Unknown tool")),
         other => tool_error_result(CallToolError::from_message(other.message())),
     }
 }
@@ -525,10 +536,11 @@ pub fn create_handler() -> LeptosSdkHandler {
     LeptosSdkHandler::default()
 }
 
+#[cfg(feature = "stdio")]
 pub async fn start_stdio() -> SdkResult<()> {
     let transport = StdioTransport::new(TransportOptions::default())?;
     let handler = create_handler().to_mcp_server_handler();
-    let server: Arc<ServerRuntime> = server_runtime::create_server(McpServerOptions {
+    let server = server_runtime::create_server(McpServerOptions {
         server_details: server_details(),
         transport,
         handler,
@@ -694,7 +706,7 @@ mod tests {
             .call_tool_result(CallToolRequestParams::new("missing-tool"))
             .expect("unknown tool should be represented as a tool error payload");
 
-        assert_tool_error(&result, "Unknown tool: missing-tool");
+        assert_tool_error(&result, "Unknown tool");
     }
 
     #[test]
@@ -722,7 +734,7 @@ mod tests {
             ))
             .expect("missing documentation should be represented as a tool error payload");
 
-        assert_tool_error(&result, "Unknown documentation section: not-a-section");
+        assert_tool_error(&result, "Unknown documentation section");
     }
 
     #[test]
@@ -736,7 +748,7 @@ mod tests {
             ))
             .expect("missing recipe should be represented as a tool error payload");
 
-        assert_tool_error(&result, "Unknown Leptos Axum recipe: not-a-recipe");
+        assert_tool_error(&result, "Unknown Leptos Axum recipe");
     }
 
     #[test]
@@ -750,7 +762,7 @@ mod tests {
             ))
             .expect("missing API symbol should be represented as a tool error payload");
 
-        assert_tool_error(&result, "Unknown API symbol: not_an_api_symbol");
+        assert_tool_error(&result, "Unknown API symbol");
     }
 
     #[test]
@@ -831,7 +843,7 @@ mod tests {
             .expect_err("unknown section should fail resources/read");
 
         assert!(
-            format!("{error:?}").contains("Unknown documentation section: not-a-section"),
+            format!("{error:?}").contains("Unknown documentation section"),
             "unexpected error: {error:?}"
         );
     }
@@ -963,7 +975,7 @@ mod tests {
             .expect_err("unknown prompt argument should fail");
         assert!(
             format!("{unknown_argument:?}")
-                .contains("prompt `debug-hydration` has unknown argument: extra"),
+                .contains("prompt `debug-hydration` has unknown argument"),
             "unexpected error: {unknown_argument:?}"
         );
 
@@ -971,7 +983,7 @@ mod tests {
             .get_prompt_result(get_prompt_params("not-a-prompt", json!({})))
             .expect_err("unknown prompt should fail");
         assert!(
-            format!("{unknown_prompt:?}").contains("Unknown prompt: not-a-prompt"),
+            format!("{unknown_prompt:?}").contains("Unknown prompt"),
             "unexpected error: {unknown_prompt:?}"
         );
     }
