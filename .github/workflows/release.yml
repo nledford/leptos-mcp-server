@@ -51,6 +51,8 @@ jobs:
     needs: preflight
     if: needs.preflight.outputs.current == 'true'
     runs-on: ubuntu-latest
+    environment:
+      name: release
     timeout-minutes: 20
     permissions:
       contents: write
