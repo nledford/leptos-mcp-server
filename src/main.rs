@@ -6,7 +6,7 @@
 //! Implements MCP protocol via JSON-RPC over stdio.
 
 use anyhow::Result;
-use leptos_mcp_server::protocol::McpServer;
+use leptos_mcp_server::sdk;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -18,8 +18,9 @@ async fn main() -> Result<()> {
 
     tracing::info!("Starting Leptos MCP Server...");
 
-    let server = McpServer::new();
-    server.run().await?;
+    sdk::start_stdio()
+        .await
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
 
     Ok(())
 }

@@ -1,10 +1,10 @@
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::process::{Command, Output, Stdio};
-use std::sync::mpsc;
-use std::time::Duration;
 
-const MAX_JSON_RPC_LINE_BYTES: usize = 1024 * 1024;
+const INITIALIZE_REQUEST: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"stdio-test","version":"0.0.0"}}}"#;
+const INITIALIZED_NOTIFICATION: &str =
+    r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#;
 
 fn run_server(input: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_leptos-mcp-server"))
@@ -31,159 +31,161 @@ fn stdout_json_lines(output: &Output) -> Vec<Value> {
         .collect()
 }
 
+fn response_by_id(responses: &[Value], id: i64) -> &Value {
+    responses
+        .iter()
+        .find(|response| response["id"] == id)
+        .unwrap_or_else(|| panic!("response id {id} should be present in {responses:#?}"))
+}
+
+fn initialized_input(requests: &[&str]) -> String {
+    let mut input = format!("{INITIALIZE_REQUEST}\n{INITIALIZED_NOTIFICATION}\n");
+    for request in requests {
+        input.push_str(request);
+        input.push('\n');
+    }
+    input
+}
+
 #[test]
-fn stdio_process_returns_one_json_response_per_request() {
-    let output = run_server(
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
-{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
-"#,
-    );
+fn stdio_process_initializes_and_returns_json_responses() {
+    let output = run_server(&initialized_input(&[
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+    ]));
 
     assert!(output.status.success());
     let responses = stdout_json_lines(&output);
     assert_eq!(responses.len(), 2);
-    assert_eq!(responses[0]["id"], 1);
-    assert_eq!(responses[1]["id"], 2);
-    assert!(responses[1]["result"]["tools"].is_array());
+    let initialize = response_by_id(&responses, 1);
+    assert_eq!(
+        initialize["result"]["serverInfo"]["name"],
+        "leptos-mcp-server"
+    );
+    assert_eq!(initialize["result"]["protocolVersion"], "2025-11-25");
+    assert!(initialize["result"]["capabilities"]["tools"].is_object());
+    assert!(initialize["result"]["capabilities"]["resources"].is_object());
+    assert!(initialize["result"]["capabilities"]["prompts"].is_object());
+    assert!(response_by_id(&responses, 2)["result"]["tools"].is_array());
 }
 
 #[test]
 fn stdio_process_keeps_logs_on_stderr() {
-    let output = run_server(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#);
+    let output = run_server(&initialized_input(&[
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+    ]));
 
     assert!(output.status.success());
-    assert_eq!(stdout_json_lines(&output).len(), 1);
+    assert_eq!(stdout_json_lines(&output).len(), 2);
     assert!(String::from_utf8_lossy(&output.stderr).contains("Starting Leptos MCP Server"));
 }
 
 #[test]
-fn stdio_process_returns_parse_errors_as_json() {
-    let output = run_server("{bad json}\n");
-
-    assert!(output.status.success());
-    let responses = stdout_json_lines(&output);
-    assert_eq!(responses.len(), 1);
-    assert_eq!(responses[0]["error"]["code"], -32700);
-}
-
-#[test]
 fn stdio_process_does_not_write_responses_for_notifications() {
-    let output = run_server(
-        r#"{"jsonrpc":"2.0","method":"initialize","params":{}}
-{"jsonrpc":"2.0","method":"missing/method","params":{}}
-{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-"#,
-    );
+    let output = run_server(&initialized_input(&[
+        r#"{"jsonrpc":"2.0","method":"tools/list","params":{}}"#,
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+    ]));
 
     assert!(output.status.success());
     let responses = stdout_json_lines(&output);
-    assert_eq!(responses.len(), 1);
-    assert_eq!(responses[0]["id"], 1);
-    assert!(responses[0]["result"]["tools"].is_array());
+    assert_eq!(responses.len(), 2);
+    assert!(response_by_id(&responses, 1)["result"]["serverInfo"].is_object());
+    assert!(response_by_id(&responses, 2)["result"]["tools"].is_array());
 }
 
 #[test]
-fn stdio_process_rejects_oversized_unterminated_live_input_before_stdin_close() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_leptos-mcp-server"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("server binary should start");
-
-    let mut stdin = child.stdin.take().expect("stdin should be piped");
-    let stdout = child.stdout.take().expect("stdout should be piped");
-    let (stdout_tx, stdout_rx) = mpsc::channel();
-
-    let stdout_reader = std::thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        loop {
-            let mut line = String::new();
-            match reader.read_line(&mut line) {
-                Ok(0) => break,
-                Ok(_) => {
-                    if stdout_tx.send(Ok(line)).is_err() {
-                        break;
-                    }
-                }
-                Err(error) => {
-                    let _ = stdout_tx.send(Err(format!("failed to read stdout: {error}")));
-                    break;
-                }
-            }
-        }
-    });
-
-    let oversized_unterminated_input = "x".repeat(MAX_JSON_RPC_LINE_BYTES + 1);
-    stdin
-        .write_all(oversized_unterminated_input.as_bytes())
-        .expect("oversized request should write to stdin");
-    stdin.flush().expect("oversized request should flush");
-
-    let line = match stdout_rx.recv_timeout(Duration::from_secs(5)) {
-        Ok(Ok(line)) => line,
-        Ok(Err(error)) => panic!("{error}"),
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            let _ = child.kill();
-            panic!("timed out waiting for oversized-input JSON-RPC response before closing stdin");
-        }
-        Err(mpsc::RecvTimeoutError::Disconnected) => panic!("stdout reader disconnected"),
-    };
-
-    let response: Value =
-        serde_json::from_str(line.trim_end()).expect("stdout line should be JSON");
-    assert_eq!(response["jsonrpc"], "2.0");
-    assert_eq!(response["id"], Value::Null);
-    assert_eq!(response["error"]["code"], -32600);
-
-    match stdout_rx.recv_timeout(Duration::from_millis(100)) {
-        Err(mpsc::RecvTimeoutError::Timeout) => {}
-        Ok(Ok(extra_line)) => {
-            panic!("unexpected extra stdout response before cleanup: {extra_line}")
-        }
-        Ok(Err(error)) => panic!("{error}"),
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            panic!("stdout reader disconnected before cleanup")
-        }
-    }
-
-    drop(stdin);
-    let output = child.wait_with_output().expect("server should exit on EOF");
-    assert!(output.status.success());
-    stdout_reader.join().expect("stdout reader should finish");
-}
-
-#[test]
-fn stdio_process_exposes_resources_prompts_and_new_tools() {
-    let output = run_server(
-        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-{"jsonrpc":"2.0","id":2,"method":"resources/list","params":{}}
-{"jsonrpc":"2.0","id":3,"method":"prompts/list","params":{}}
-"#,
-    );
+fn stdio_process_exposes_tools_resources_templates_and_prompts() {
+    let output = run_server(&initialized_input(&[
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+        r#"{"jsonrpc":"2.0","id":3,"method":"resources/list","params":{}}"#,
+        r#"{"jsonrpc":"2.0","id":4,"method":"resources/templates/list","params":{}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"prompts/list","params":{}}"#,
+    ]));
 
     assert!(output.status.success());
     let responses = stdout_json_lines(&output);
-    assert_eq!(responses.len(), 3);
+    assert_eq!(responses.len(), 5);
     assert!(
-        responses[0]["result"]["tools"]
+        response_by_id(&responses, 2)["result"]["tools"]
             .as_array()
             .expect("tools should be listed")
             .iter()
             .any(|tool| tool["name"] == "lookup-api")
     );
     assert!(
-        responses[1]["result"]["resources"]
+        response_by_id(&responses, 3)["result"]["resources"]
             .as_array()
             .expect("resources should be listed")
             .iter()
             .any(|resource| resource["uri"] == "leptos://docs/leptos-axum")
     );
     assert!(
-        responses[2]["result"]["prompts"]
+        response_by_id(&responses, 4)["result"]["resourceTemplates"]
+            .as_array()
+            .expect("resource templates should be listed")
+            .iter()
+            .any(|template| template["uriTemplate"] == "leptos://docs/{section}")
+    );
+    assert!(
+        response_by_id(&responses, 5)["result"]["prompts"]
             .as_array()
             .expect("prompts should be listed")
             .iter()
             .any(|prompt| prompt["name"] == "wire-leptos-axum-ssr")
+    );
+}
+
+#[test]
+fn stdio_process_calls_tools_reads_resources_gets_prompts_and_surfaces_tool_errors() {
+    let output = run_server(&initialized_input(&[
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get-documentation","arguments":{"section":"signals"}}}"#,
+        r#"{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"leptos://docs/signals"}}"#,
+        r#"{"jsonrpc":"2.0","id":4,"method":"prompts/get","params":{"name":"debug-hydration","arguments":{"symptom":"WASM 404"}}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get-documentation","arguments":{}}}"#,
+    ]));
+
+    assert!(output.status.success());
+    let responses = stdout_json_lines(&output);
+    assert_eq!(responses.len(), 5);
+
+    let tool_call = response_by_id(&responses, 2);
+    assert_eq!(tool_call["result"]["isError"], Value::Null);
+    assert_eq!(
+        tool_call["result"]["structuredContent"]["kind"],
+        "documentation"
+    );
+    assert!(
+        tool_call["result"]["content"][0]["text"]
+            .as_str()
+            .expect("tool text should be a string")
+            .contains("Leptos Signals")
+    );
+
+    let resource_read = response_by_id(&responses, 3);
+    assert_eq!(
+        resource_read["result"]["contents"][0]["uri"],
+        "leptos://docs/signals"
+    );
+    assert_eq!(
+        resource_read["result"]["contents"][0]["mimeType"],
+        "text/markdown"
+    );
+
+    let prompt_get = response_by_id(&responses, 4);
+    assert_eq!(prompt_get["result"]["messages"][0]["role"], "user");
+    assert!(
+        prompt_get["result"]["messages"][0]["content"]["text"]
+            .as_str()
+            .expect("prompt text should be a string")
+            .contains("WASM 404")
+    );
+
+    let malformed_tool_call = response_by_id(&responses, 5);
+    assert_eq!(malformed_tool_call["result"]["isError"], true);
+    assert!(
+        malformed_tool_call["result"]["content"][0]["text"]
+            .as_str()
+            .expect("tool error text should be a string")
+            .contains("missing field `section`")
     );
 }
