@@ -36,50 +36,50 @@ Make search and API lookup predictable, explainable, and less noisy while preser
 
 ## TODOs
 
-- [ ] 1. Add search characterization tests
+- [x] 1. Add search characterization tests
   **What**: Cover exact section ID, alias, title, multi-token query (`server function`), short/noisy token (`as`, `get`, `api`), common error phrases, and deterministic ordering.
   **Files**: `src/docs.rs`
   **Acceptance**: Tests describe both preserved and intentionally changed ranking outcomes.
 
-- [ ] 2. Add API lookup characterization tests
+- [x] 2. Add API lookup characterization tests
   **What**: Cover exact symbols, aliases, crate-filtered lookups, prefix-like terms, ambiguous terms (`extractor`, `response`), and too-short/noisy queries.
   **Files**: `src/api.rs`
   **Acceptance**: Tests fail if fuzzy substring behavior returns an overconfident single symbol for ambiguous input.
 
-- [ ] 3. Implement shared query tokenization helpers
+- [x] 3. Implement shared query tokenization helpers
   **What**: Introduce normalization/tokenization helpers that split punctuation/case consistently, drop or reject tokens below a minimum length where appropriate, and preserve exact phrase matching where valuable.
   **Files**: `src/docs.rs`, `src/api.rs`
   **Acceptance**: Unit tests pin normalization of `leptos_axum::ResponseOptions`, `#[server]`, and multi-word phrases.
 
-- [ ] 4. Refactor docs scoring
+- [x] 4. Refactor docs scoring
   **What**: Score exact ID/alias/title matches highest, then all-token field matches, then partial token matches; update `matched_fields` and `why` to explain the strongest match.
   **Files**: `src/docs.rs`, `src/tools.rs`
   **Acceptance**: Results are deterministic and less noisy for short/common inputs.
 
-- [ ] 5. Refactor API lookup phases
+- [x] 5. Refactor API lookup phases
   **What**: Keep exact symbol/alias resolution, then add controlled prefix/token matching; return `Ambiguous` when multiple same-tier symbols match rather than falling through to broad summary substring matches.
   **Files**: `src/api.rs`, `src/tools.rs`
   **Acceptance**: API lookup no longer returns a single low-quality match for vague queries.
 
-- [ ] 6. Update protocol tests if output changes
+- [x] 6. Update protocol tests if output changes
   **What**: Adjust tests that assert specific lookup/search responses to match the new ranking/error contract.
   **Files**: `src/protocol.rs`
   **Acceptance**: Protocol still returns `-32602` for ambiguous/unknown lookups and valid structured content for successful searches.
 
-- [ ] 7. Document breaking lookup/search changes
+- [x] 7. Document breaking lookup/search changes
   **What**: Add release notes for queries that may now return ambiguous/unknown instead of a low-confidence result.
   **Files**: `CHANGELOG.md`
   **Acceptance**: Clients are told to use exact IDs, aliases, or crate filters for stable automation.
 
 ## Verification
-- [ ] Run `cargo test docs`.
-- [ ] Run `cargo test api`.
-- [ ] Run `cargo test tools`.
-- [ ] Run `cargo test protocol::tests::api_lookup_tool_returns_symbol_metadata`.
-- [ ] Run `cargo fmt -- --check`.
-- [ ] Run `cargo clippy --locked --all-targets -- -D warnings`.
-- [ ] Run `cargo test` before merging.
-- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
+- [x] Run `cargo test docs`.
+- [x] Run `cargo test api`.
+- [x] Run `cargo test tools`.
+- [x] Run `cargo test protocol::tests::api_lookup_tool_returns_symbol_metadata`.
+- [x] Run `cargo fmt -- --check`.
+- [x] Run `cargo clippy --locked --all-targets -- -D warnings`.
+- [x] Run `cargo test` before merging.
+- [x] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 
 ## Breaking-Change Notes
 - Intentional breaking change: some vague substring queries may become `Ambiguous` or `Unknown`.
