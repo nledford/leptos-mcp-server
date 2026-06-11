@@ -55,24 +55,24 @@ Ensure snippets labeled compile-checkable are actually compiled, while illustrat
   **Files**: `src/docs.rs`, `src/recipes.rs`, `src/api.rs`
   **Acceptance**: The compile-candidate set is small but real, and every candidate passes the harness.
 
-- [ ] 5. Add failure diagnostics
+- [x] 5. Add failure diagnostics
   **What**: Make snippet test failures print section/recipe ID, file path, classification, and generated fixture location.
   **Files**: `tests/snippets.rs`
   **Acceptance**: A failed compile points directly to the source snippet.
 
-- [ ] 6. Document validation command
+- [x] 6. Document validation command
   **What**: Add or update contributor/release docs with the command to run snippet checks and when to reclassify snippets.
   **Files**: `README.md`, `docs/releasing.md`
   **Acceptance**: Release checklist includes snippet validation before publishing.
 
 ## Verification
-- [ ] Run `cargo test snippet` or the final snippet-specific test name.
-- [ ] Run `cargo test docs`.
-- [ ] Run `cargo test recipes`.
-- [ ] Run `cargo fmt -- --check`.
-- [ ] Run `cargo clippy --locked --all-targets -- -D warnings` if Rust source, tests, or fixture crates are changed.
-- [ ] Run `cargo test` before merging.
-- [ ] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
+- [x] Run `cargo test snippet` or the final snippet-specific test name.
+- [x] Run `cargo test docs`.
+- [x] Run `cargo test recipes`.
+- [x] Run `cargo fmt -- --check`.
+- [x] Run `cargo clippy --locked --all-targets -- -D warnings` if Rust source, tests, or fixture crates are changed.
+- [x] Run `cargo test` before merging.
+- [x] Fix any discovered or introduced test failures, compilation/type errors, Clippy warnings, or formatting failures in affected code before marking this plan complete.
 
 ## Breaking-Change Notes
 - Behavior-preserving unless snippets/output text changes.
