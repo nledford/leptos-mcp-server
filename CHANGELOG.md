@@ -17,6 +17,13 @@ request is opened.
 - Residual risk for Warp review: this bound does not add a wall-clock read
   timeout, so clients that keep pipes open without exceeding the line limit can
   still hold a read pending.
+- Release documentation now marks security-sensitive input validation,
+  malformed-frame/frame-size behavior, dependency policy, release automation,
+  release token, tag protection, and workflow permission changes as requiring
+  Warp review before release.
+- Release notes must now call out intentional breaking behavior, including
+  security-sensitive malformed-client changes such as oversized-frame rejection
+  timing and `id: null` responses after frame-bound failure.
 
 ### Breaking diagnostic behavior
 

@@ -295,7 +295,8 @@ cargo deny check
 
 Release automation uses Semantic Versioning, Conventional Commits, `release-plz`,
 and `vX.Y.Z` Git tags. See [docs/releasing.md](docs/releasing.md) for the
-maintainer process, GitHub settings, and publishing status.
+maintainer process, dependency version policy, lockfile update rules, audit
+timing, Warp review criteria, GitHub settings, and publishing status.
 
 ## Protocol
 
