@@ -2,7 +2,7 @@
 
 use crate::api::{
     AXUM_DOCS_URL, AXUM_VERSION, LEPTOS_AXUM_DOCS_URL, LEPTOS_AXUM_VERSION, LEPTOS_DOCS_URL,
-    LEPTOS_VERSION,
+    LEPTOS_VERSION, normalize_query, query_tokens,
 };
 use serde::Serialize;
 
@@ -822,76 +822,40 @@ pub fn search_sections(query: &str) -> Result<Vec<SectionSearchMatch>, SectionLo
     if normalized_query.is_empty() {
         return Err(SectionLookupError::Empty);
     }
+    let query_tokens = query_tokens(query);
 
     let mut matches: Vec<SectionSearchMatch> = CATALOG_SECTIONS
         .iter()
         .filter_map(|catalog_section| {
             let section = catalog_section.section;
             let metadata = catalog_section.metadata;
-            let mut score = 0;
-            let mut matched_fields = Vec::new();
 
-            score += score_field("id", section.id, &normalized_query, &mut matched_fields, 30);
-            score += score_field(
-                "title",
-                section.title,
-                &normalized_query,
-                &mut matched_fields,
-                25,
-            );
-            score += score_field(
-                "use_cases",
-                section.use_cases,
-                &normalized_query,
-                &mut matched_fields,
-                15,
-            );
-            score += score_slice(
-                "aliases",
-                section.aliases,
-                &normalized_query,
-                &mut matched_fields,
-                20,
-            );
-            score += score_slice(
-                "task_tags",
-                metadata.task_tags,
-                &normalized_query,
-                &mut matched_fields,
-                20,
-            );
-            score += score_slice(
-                "crate_apis",
-                metadata.crate_apis,
-                &normalized_query,
-                &mut matched_fields,
-                15,
-            );
-            score += score_slice(
-                "common_errors",
-                metadata.common_errors,
-                &normalized_query,
-                &mut matched_fields,
-                10,
-            );
-            score += score_field(
-                "content",
-                section.content,
-                &normalized_query,
-                &mut matched_fields,
-                3,
-            );
+            let best_match =
+                best_section_match(section, metadata, &normalized_query, &query_tokens);
 
-            (score > 0).then(|| SectionSearchMatch {
+            best_match.map(|best_match| SectionSearchMatch {
                 section,
                 metadata,
-                score,
-                matched_fields,
-                why: format!("Matched {} for '{}'", section.title, query.trim()),
+                score: best_match.score,
+                matched_fields: vec![best_match.field_name],
+                why: best_match.why(section.title, query.trim()),
                 next_actions: next_actions_for(section.id),
             })
         })
         .collect();
+
+    let has_exact_identity_match = matches.iter().any(|match_| match_.score >= 10_000);
+    let has_all_token_match = matches.iter().any(|match_| match_.score >= 1_000);
+    let normalized_query_token_count = normalized_query
+        .split('-')
+        .filter(|token| !token.is_empty())
+        .count();
+
+    if has_exact_identity_match && normalized_query_token_count != query_tokens.len() {
+        matches.retain(|match_| match_.score >= 10_000);
+    } else if has_all_token_match {
+        matches.retain(|match_| match_.score >= 1_000);
+    }
 
     matches.sort_by(|left, right| {
         right
@@ -951,49 +915,230 @@ impl DocSection {
 }
 
 fn normalize(value: &str) -> String {
-    value.trim().to_ascii_lowercase().replace(' ', "-")
+    normalize_query(value)
 }
 
-fn score_field(
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SearchEvidence {
+    tier: MatchTier,
+    score: usize,
+    field_name: &'static str,
+    detail: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum MatchTier {
+    PartialToken,
+    AllTokens,
+    ExactIdentity,
+}
+
+impl SearchEvidence {
+    fn why(&self, section_title: &str, query: &str) -> String {
+        let match_kind = match self.tier {
+            MatchTier::ExactIdentity => "exact identity",
+            MatchTier::AllTokens => "all query tokens",
+            MatchTier::PartialToken => "partial query tokens",
+        };
+
+        format!(
+            "Matched {section_title} for '{query}' by {match_kind} in {} ({})",
+            self.field_name, self.detail
+        )
+    }
+}
+
+fn best_section_match(
+    section: &DocSection,
+    metadata: &SectionMetadata,
+    normalized_query: &str,
+    normalized_query_tokens: &[String],
+) -> Option<SearchEvidence> {
+    let mut best_match = None;
+
+    consider_match(
+        &mut best_match,
+        exact_field_match("id", section.id, normalized_query, 300),
+    );
+    consider_match(
+        &mut best_match,
+        exact_field_match(
+            "resource_uri",
+            &resource_uri(section),
+            normalized_query,
+            290,
+        ),
+    );
+    consider_match(
+        &mut best_match,
+        exact_field_match("title", section.title, normalized_query, 275),
+    );
+    consider_match(
+        &mut best_match,
+        exact_slice_match("aliases", section.aliases, normalized_query, 250),
+    );
+
+    for candidate in [
+        token_field_match("id", section.id, normalized_query_tokens, 95),
+        token_field_match("title", section.title, normalized_query_tokens, 90),
+        token_field_match("use_cases", section.use_cases, normalized_query_tokens, 65),
+        token_slice_match("aliases", section.aliases, normalized_query_tokens, 85),
+        token_slice_match("task_tags", metadata.task_tags, normalized_query_tokens, 80),
+        token_slice_match(
+            "crate_apis",
+            metadata.crate_apis,
+            normalized_query_tokens,
+            70,
+        ),
+        token_slice_match(
+            "common_errors",
+            metadata.common_errors,
+            normalized_query_tokens,
+            75,
+        ),
+        token_field_match("content", section.content, normalized_query_tokens, 20),
+    ] {
+        consider_match(&mut best_match, candidate);
+    }
+
+    best_match
+}
+
+fn consider_match(best_match: &mut Option<SearchEvidence>, candidate: Option<SearchEvidence>) {
+    let Some(candidate) = candidate else {
+        return;
+    };
+
+    if best_match
+        .as_ref()
+        .is_none_or(|current| candidate_is_stronger(&candidate, current))
+    {
+        *best_match = Some(candidate);
+    }
+}
+
+fn candidate_is_stronger(candidate: &SearchEvidence, current: &SearchEvidence) -> bool {
+    candidate
+        .tier
+        .cmp(&current.tier)
+        .then_with(|| candidate.score.cmp(&current.score))
+        .then_with(|| current.field_name.cmp(candidate.field_name))
+        .is_gt()
+}
+
+fn exact_field_match(
     field_name: &'static str,
     value: &str,
     normalized_query: &str,
-    matched_fields: &mut Vec<&'static str>,
-    points: usize,
-) -> usize {
-    let normalized_value = normalize(value);
-    if normalized_value == normalized_query {
-        push_unique(matched_fields, field_name);
-        points * 2
-    } else if normalized_value.contains(normalized_query) {
-        push_unique(matched_fields, field_name);
-        points
-    } else {
-        0
-    }
+    field_weight: usize,
+) -> Option<SearchEvidence> {
+    (normalize(value) == normalized_query).then(|| SearchEvidence {
+        tier: MatchTier::ExactIdentity,
+        score: 10_000 + field_weight,
+        field_name,
+        detail: format!("exact '{value}'"),
+    })
 }
 
-fn score_slice(
+fn exact_slice_match(
     field_name: &'static str,
     values: &[&str],
     normalized_query: &str,
-    matched_fields: &mut Vec<&'static str>,
-    points: usize,
-) -> usize {
-    let matches = values
+    field_weight: usize,
+) -> Option<SearchEvidence> {
+    values
         .iter()
-        .filter(|value| normalize(value).contains(normalized_query))
-        .count();
-    if matches > 0 {
-        push_unique(matched_fields, field_name);
-    }
-    matches * points
+        .find(|value| normalize(value) == normalized_query)
+        .map(|value| SearchEvidence {
+            tier: MatchTier::ExactIdentity,
+            score: 10_000 + field_weight,
+            field_name,
+            detail: format!("exact '{value}'"),
+        })
 }
 
-fn push_unique(values: &mut Vec<&'static str>, value: &'static str) {
-    if !values.contains(&value) {
-        values.push(value);
+fn token_field_match(
+    field_name: &'static str,
+    value: &str,
+    normalized_query_tokens: &[String],
+    field_weight: usize,
+) -> Option<SearchEvidence> {
+    let field_tokens = query_tokens(value);
+    token_match(
+        field_name,
+        &field_tokens,
+        normalized_query_tokens,
+        field_weight,
+    )
+}
+
+fn token_slice_match(
+    field_name: &'static str,
+    values: &[&str],
+    normalized_query_tokens: &[String],
+    field_weight: usize,
+) -> Option<SearchEvidence> {
+    let field_tokens: Vec<String> = values
+        .iter()
+        .flat_map(|value| query_tokens(value))
+        .collect();
+
+    token_match(
+        field_name,
+        &field_tokens,
+        normalized_query_tokens,
+        field_weight,
+    )
+}
+
+fn token_match(
+    field_name: &'static str,
+    field_tokens: &[String],
+    query_tokens: &[String],
+    field_weight: usize,
+) -> Option<SearchEvidence> {
+    if query_tokens.is_empty() {
+        return None;
     }
+
+    if field_name == "content" && query_tokens.len() == 1 {
+        return None;
+    }
+
+    let matched_count = query_tokens
+        .iter()
+        .filter(|query_token| {
+            field_tokens
+                .iter()
+                .any(|field_token| tokens_match(query_token, field_token))
+        })
+        .count();
+
+    if matched_count == 0 {
+        return None;
+    }
+
+    if matched_count == query_tokens.len() {
+        Some(SearchEvidence {
+            tier: MatchTier::AllTokens,
+            score: 1_000 + field_weight + (matched_count * 10),
+            field_name,
+            detail: format!("matched tokens: {}", query_tokens.join(", ")),
+        })
+    } else {
+        Some(SearchEvidence {
+            tier: MatchTier::PartialToken,
+            score: field_weight + (matched_count * 10),
+            field_name,
+            detail: format!("matched {matched_count} of {} tokens", query_tokens.len()),
+        })
+    }
+}
+
+fn tokens_match(query_token: &str, field_token: &str) -> bool {
+    query_token == field_token
+        || field_token.strip_suffix('s') == Some(query_token)
+        || query_token.strip_suffix('s') == Some(field_token)
 }
 
 fn catalog_section_doc(catalog_section: &'static CatalogSection) -> &'static DocSection {
@@ -1097,6 +1242,17 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn normalization_splits_rust_punctuation_case_and_preserves_phrases() {
+        assert_eq!(
+            normalize("leptos_axum::ResponseOptions"),
+            "leptos-axum-response-options"
+        );
+        assert_eq!(normalize("#[server]"), "server");
+        assert_eq!(normalize("Missing Outlet"), "missing-outlet");
+        assert_eq!(normalize("server function"), "server-function");
     }
 
     #[test]
@@ -1375,6 +1531,94 @@ mod tests {
             matches.first().expect("expected match").section.id,
             "server-functions"
         );
+    }
+
+    fn search_ids(query: &str) -> Vec<&'static str> {
+        search_sections(query)
+            .unwrap_or_else(|_| panic!("search for '{query}' should succeed"))
+            .into_iter()
+            .map(|match_| match_.section.id)
+            .collect()
+    }
+
+    fn assert_search_order(query: &str, expected_ids: &[&str]) {
+        let matches = search_sections(query)
+            .unwrap_or_else(|_| panic!("search for '{query}' should succeed"));
+        let actual_ids: Vec<&str> = matches.iter().map(|match_| match_.section.id).collect();
+
+        assert_eq!(actual_ids, expected_ids, "search ids for '{query}' drifted");
+
+        for pair in matches.windows(2) {
+            let left = &pair[0];
+            let right = &pair[1];
+            assert!(
+                left.score > right.score
+                    || (left.score == right.score && left.section.id <= right.section.id),
+                "search results for '{query}' must be sorted by score desc, then section id asc"
+            );
+        }
+    }
+
+    #[test]
+    fn search_preserves_exact_id_and_title_rankings() {
+        assert_eq!(search_ids("server-functions")[0], "server-functions");
+        assert_eq!(search_ids("Error Handling")[0], "error-handling");
+    }
+
+    #[test]
+    fn search_ranks_exact_resource_uri_as_identity_match() {
+        let matches = search_sections("leptos://docs/axum").expect("search should succeed");
+
+        assert_eq!(matches[0].section.id, "axum");
+        assert_eq!(matches[0].matched_fields, vec!["resource_uri"]);
+        assert!(matches[0].why.contains("exact identity in resource_uri"));
+    }
+
+    #[test]
+    fn search_ranks_exact_alias_above_noisy_token_matches() {
+        assert_search_order("server-fn", &["server-functions"]);
+
+        let matches = search_sections("server-fn").expect("search should succeed");
+        assert_eq!(matches[0].matched_fields, vec!["aliases"]);
+        assert!(matches[0].why.contains("exact identity in aliases"));
+    }
+
+    #[test]
+    fn search_characterizes_multi_token_server_function_ranking() {
+        assert_search_order(
+            "server function",
+            &[
+                "server-functions",
+                "leptos-axum",
+                "actions",
+                "axum",
+                "error-handling",
+                "forms",
+                "ssr-hydration-deployment",
+            ],
+        );
+    }
+
+    #[test]
+    fn search_suppresses_short_or_common_noisy_token_matches() {
+        assert_search_order("as", &[]);
+        assert_search_order("get", &["signals"]);
+        assert_search_order("api", &["server-functions", "leptos-axum", "resources"]);
+    }
+
+    #[test]
+    fn search_characterizes_common_error_phrase_rankings() {
+        assert_search_order("Missing Outlet", &["routing"]);
+        assert_search_order("API prefix", &["leptos-axum", "ssr-hydration-deployment"]);
+        assert_search_order("Hydration mismatch", &["ssr-hydration-deployment"]);
+    }
+
+    #[test]
+    fn search_order_is_deterministic_for_repeated_queries() {
+        let first = search_ids("sqlx");
+        let second = search_ids("sqlx");
+
+        assert_eq!(first, second);
     }
 
     #[test]

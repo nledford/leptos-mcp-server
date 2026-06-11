@@ -398,6 +398,19 @@ mod tests {
     }
 
     #[test]
+    fn lookup_api_renders_ambiguous_symbol_errors() {
+        let tools = LeptosTools::new();
+        let error = tools
+            .lookup_api("extractor", None)
+            .expect_err("ambiguous API query must fail");
+
+        assert_eq!(
+            error.message(),
+            "Ambiguous API symbol 'extractor'. Matching symbols: leptos_axum::extract, leptos_axum::extract_with_state, axum::Json"
+        );
+    }
+
+    #[test]
     fn leptos_axum_recipe_returns_steps_and_files() {
         let tools = LeptosTools::new();
         let output = tools

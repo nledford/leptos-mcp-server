@@ -304,40 +304,92 @@ pub fn lookup_symbol(
 ) -> Result<&'static ApiSymbol, ApiLookupError> {
     let normalized_query = normalize(query);
     if normalized_query.is_empty() {
+        if !query.trim().is_empty() {
+            return Err(ApiLookupError::Unknown {
+                query: query.to_string(),
+                crate_name: crate_name.map(str::to_string),
+            });
+        }
+
         return Err(ApiLookupError::Empty);
     }
     let normalized_crate = crate_name.map(normalize);
-
-    let exact_matches: Vec<&ApiSymbol> = API_SYMBOLS
+    let candidate_symbols: Vec<&ApiSymbol> = API_SYMBOLS
         .iter()
         .filter(|symbol| crate_matches(symbol, normalized_crate.as_deref()))
+        .collect();
+
+    let exact_matches: Vec<&ApiSymbol> = candidate_symbols
+        .iter()
+        .copied()
         .filter(|symbol| symbol.matches_exact(&normalized_query))
         .collect();
 
-    match exact_matches.as_slice() {
-        [symbol] => Ok(*symbol),
-        [] => {
-            let fuzzy_matches: Vec<&ApiSymbol> = API_SYMBOLS
-                .iter()
-                .filter(|symbol| crate_matches(symbol, normalized_crate.as_deref()))
-                .filter(|symbol| symbol.matches_fuzzy(&normalized_query))
-                .collect();
+    if !exact_matches.is_empty() {
+        return resolve_lookup_tier(query, exact_matches);
+    }
 
-            match fuzzy_matches.as_slice() {
-                [symbol] => Ok(*symbol),
-                [] => Err(ApiLookupError::Unknown {
-                    query: query.to_string(),
-                    crate_name: crate_name.map(str::to_string),
-                }),
-                multiple => Err(ApiLookupError::Ambiguous {
-                    query: query.to_string(),
-                    matches: multiple
-                        .iter()
-                        .map(|symbol| symbol.name.to_string())
-                        .collect(),
-                }),
-            }
-        }
+    if normalized_query.len() < MIN_QUERY_TOKEN_LEN {
+        return Err(ApiLookupError::Unknown {
+            query: query.to_string(),
+            crate_name: crate_name.map(str::to_string),
+        });
+    }
+
+    let prefix_matches: Vec<&ApiSymbol> = candidate_symbols
+        .iter()
+        .copied()
+        .filter(|symbol| symbol.matches_prefix(&normalized_query))
+        .collect();
+
+    if !prefix_matches.is_empty() {
+        return resolve_lookup_tier(query, prefix_matches);
+    }
+
+    let tokens = query_tokens(&normalized_query);
+    if tokens.is_empty() {
+        return Err(ApiLookupError::Unknown {
+            query: query.to_string(),
+            crate_name: crate_name.map(str::to_string),
+        });
+    }
+
+    let token_matches: Vec<&ApiSymbol> = candidate_symbols
+        .iter()
+        .copied()
+        .filter(|symbol| symbol.matches_tokens(&tokens))
+        .collect();
+
+    if !token_matches.is_empty() {
+        return resolve_lookup_tier(query, token_matches);
+    }
+
+    let summary_matches: Vec<&ApiSymbol> = if tokens.len() >= 2 {
+        candidate_symbols
+            .iter()
+            .copied()
+            .filter(|symbol| symbol.matches_summary_tokens(&tokens))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    if !summary_matches.is_empty() {
+        return resolve_lookup_tier(query, summary_matches);
+    }
+
+    Err(ApiLookupError::Unknown {
+        query: query.to_string(),
+        crate_name: crate_name.map(str::to_string),
+    })
+}
+
+fn resolve_lookup_tier(
+    query: &str,
+    matches: Vec<&'static ApiSymbol>,
+) -> Result<&'static ApiSymbol, ApiLookupError> {
+    match matches.as_slice() {
+        [symbol] => Ok(*symbol),
         multiple => Err(ApiLookupError::Ambiguous {
             query: query.to_string(),
             matches: multiple
@@ -361,29 +413,151 @@ impl ApiSymbol {
                 .any(|alias| normalize(alias) == normalized_query)
     }
 
-    fn matches_fuzzy(&self, normalized_query: &str) -> bool {
-        normalize(self.name).contains(normalized_query)
-            || normalize(self.summary).contains(normalized_query)
+    fn matches_prefix(&self, normalized_query: &str) -> bool {
+        self.field_matches_prefix(normalized_query, self.name)
             || self
                 .aliases
                 .iter()
-                .any(|alias| normalize(alias).contains(normalized_query))
+                .any(|alias| self.field_matches_prefix(normalized_query, alias))
+    }
+
+    fn matches_tokens(&self, normalized_tokens: &[String]) -> bool {
+        self.matches_field_tokens(normalized_tokens, self.name)
+            || self
+                .aliases
+                .iter()
+                .any(|alias| self.matches_field_tokens(normalized_tokens, alias))
+    }
+
+    fn matches_summary_tokens(&self, normalized_tokens: &[String]) -> bool {
+        self.matches_field_tokens(normalized_tokens, self.summary)
+    }
+
+    fn matches_field_tokens(&self, normalized_tokens: &[String], field: &str) -> bool {
+        let field_tokens = query_tokens(field);
+
+        !field_tokens.is_empty()
+            && normalized_tokens.iter().all(|query_token| {
+                field_tokens
+                    .iter()
+                    .any(|field_token| field_token.starts_with(query_token))
+            })
+    }
+
+    fn field_matches_prefix(&self, normalized_query: &str, field: &str) -> bool {
+        if !normalize(field).starts_with(normalized_query) {
+            return false;
+        }
+
+        let query_token_count = query_tokens_with_min_len(normalized_query, 1).len();
+        let field_token_count = query_tokens_with_min_len(field, 1).len();
+
+        query_token_count > 1 || field_token_count == 1
+    }
+}
+
+pub const MIN_QUERY_TOKEN_LEN: usize = 3;
+
+pub fn normalize_query(value: &str) -> String {
+    let mut normalized = String::new();
+    let mut previous_was_separator = true;
+    let mut previous_was_lowercase_or_digit = false;
+
+    for character in value.trim().chars() {
+        if character.is_ascii_alphanumeric() {
+            if character.is_ascii_uppercase() && previous_was_lowercase_or_digit {
+                push_separator(&mut normalized, &mut previous_was_separator);
+            }
+
+            normalized.push(character.to_ascii_lowercase());
+            previous_was_separator = false;
+            previous_was_lowercase_or_digit =
+                character.is_ascii_lowercase() || character.is_ascii_digit();
+        } else {
+            push_separator(&mut normalized, &mut previous_was_separator);
+            previous_was_lowercase_or_digit = false;
+        }
+    }
+
+    normalized.trim_matches('-').to_string()
+}
+
+pub fn query_tokens(value: &str) -> Vec<String> {
+    query_tokens_with_min_len(value, MIN_QUERY_TOKEN_LEN)
+}
+
+pub fn query_tokens_with_min_len(value: &str, min_len: usize) -> Vec<String> {
+    normalize_query(value)
+        .split('-')
+        .filter(|token| token.len() >= min_len)
+        .map(str::to_string)
+        .collect()
+}
+
+fn push_separator(value: &mut String, previous_was_separator: &mut bool) {
+    if !*previous_was_separator {
+        value.push('-');
+        *previous_was_separator = true;
     }
 }
 
 pub fn normalize(value: &str) -> String {
-    value
-        .trim()
-        .to_ascii_lowercase()
-        .replace("::", "-")
-        .replace([' ', '_', '#', '[', ']'], "-")
-        .trim_matches('-')
-        .to_string()
+    normalize_query(value)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_lookup_name(query: &str, crate_name: Option<&str>, expected_name: &str) {
+        let symbol = lookup_symbol(query, crate_name)
+            .unwrap_or_else(|error| panic!("query '{query}' should resolve: {error:?}"));
+
+        assert_eq!(symbol.name, expected_name);
+    }
+
+    fn assert_ambiguous_names(query: &str, crate_name: Option<&str>, expected_names: &[&str]) {
+        let error = lookup_symbol(query, crate_name)
+            .expect_err(&format!("query '{query}' should be ambiguous"));
+
+        let ApiLookupError::Ambiguous { matches, .. } = error else {
+            panic!("query '{query}' should be ambiguous, got {error:?}");
+        };
+
+        assert_eq!(matches, expected_names);
+    }
+
+    fn assert_unknown(query: &str, crate_name: Option<&str>) {
+        let error = lookup_symbol(query, crate_name)
+            .expect_err(&format!("query '{query}' should be unknown"));
+
+        assert_eq!(
+            error,
+            ApiLookupError::Unknown {
+                query: query.to_string(),
+                crate_name: crate_name.map(str::to_string),
+            }
+        );
+    }
+
+    #[test]
+    fn normalization_tokenizes_rust_symbols_macros_and_phrases() {
+        assert_eq!(
+            normalize("leptos_axum::ResponseOptions"),
+            "leptos-axum-response-options"
+        );
+        assert_eq!(normalize("#[server]"), "server");
+        assert_eq!(
+            normalize("server function handler"),
+            "server-function-handler"
+        );
+
+        assert_eq!(
+            query_tokens("#[server] leptos_axum::ResponseOptions as"),
+            vec!["server", "leptos", "axum", "response", "options"]
+        );
+        assert_eq!(query_tokens_with_min_len("a api fn", 3), vec!["api"]);
+    }
 
     #[test]
     fn lookup_finds_exact_symbol_with_crate_filter() {
@@ -394,10 +568,110 @@ mod tests {
     }
 
     #[test]
+    fn lookup_finds_exact_fully_qualified_symbols() {
+        assert_lookup_name(
+            "leptos::prelude::Resource",
+            None,
+            "leptos::prelude::Resource",
+        );
+        assert_lookup_name(
+            "leptos_axum::extract_with_state",
+            None,
+            "leptos_axum::extract_with_state",
+        );
+        assert_lookup_name(
+            "axum::response::IntoResponse",
+            None,
+            "axum::response::IntoResponse",
+        );
+    }
+
+    #[test]
+    fn lookup_finds_aliases_with_normalized_spelling() {
+        assert_lookup_name("#[server]", None, "leptos::server");
+        assert_lookup_name("server fn error", None, "leptos::server_fn::ServerFnError");
+        assert_lookup_name("route_layer", None, "axum::middleware");
+    }
+
+    #[test]
+    fn lookup_applies_crate_filter_before_exact_and_fuzzy_matching() {
+        assert_lookup_name("State", Some("axum"), "axum::extract::State");
+        assert_lookup_name("extract", Some("leptos_axum"), "leptos_axum::extract");
+
+        let error =
+            lookup_symbol("State", Some("leptos")).expect_err("crate filter excludes State");
+        assert_eq!(
+            error,
+            ApiLookupError::Unknown {
+                query: "State".to_string(),
+                crate_name: Some("leptos".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn lookup_keeps_prefix_like_terms_distinct_from_short_ambiguous_terms() {
+        assert_lookup_name("Resource::new", None, "leptos::prelude::Resource");
+        assert_lookup_name("extract", None, "leptos_axum::extract");
+        assert_lookup_name(
+            "leptos_axum::extract_with",
+            None,
+            "leptos_axum::extract_with_state",
+        );
+        assert_ambiguous_names(
+            "extracto",
+            None,
+            &[
+                "leptos_axum::extract",
+                "leptos_axum::extract_with_state",
+                "axum::Json",
+            ],
+        );
+    }
+
+    #[test]
     fn lookup_reports_ambiguous_short_query() {
         let error = lookup_symbol("extractor", None).expect_err("extractor is ambiguous");
 
         assert!(matches!(error, ApiLookupError::Ambiguous { .. }));
+    }
+
+    #[test]
+    fn lookup_reports_expected_ambiguous_terms_without_single_fuzzy_winner() {
+        assert_ambiguous_names(
+            "extractor",
+            None,
+            &[
+                "leptos_axum::extract",
+                "leptos_axum::extract_with_state",
+                "axum::Json",
+            ],
+        );
+
+        assert_lookup_name("response", None, "axum::response::IntoResponse");
+        assert_ambiguous_names(
+            "error",
+            None,
+            &[
+                "leptos::server_fn::ServerFnError",
+                "leptos_axum::file_and_error_handler",
+                "axum::response::IntoResponse",
+            ],
+        );
+    }
+
+    #[test]
+    fn lookup_handles_too_short_and_noisy_queries_without_overconfident_results() {
+        assert_unknown("a", None);
+
+        let error = lookup_symbol("???", None).expect_err("punctuation noise should not resolve");
+        assert_eq!(
+            error,
+            ApiLookupError::Unknown {
+                query: "???".to_string(),
+                crate_name: None,
+            }
+        );
     }
 
     #[test]

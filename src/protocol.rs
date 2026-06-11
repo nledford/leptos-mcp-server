@@ -493,6 +493,15 @@ mod tests {
         response.error.as_ref().expect("expected error").code
     }
 
+    fn error_message(response: &JsonRpcResponse) -> &str {
+        response
+            .error
+            .as_ref()
+            .expect("expected error")
+            .message
+            .as_str()
+    }
+
     fn response_id(response: &JsonRpcResponse) -> &Value {
         &response.id
     }
@@ -809,6 +818,64 @@ mod tests {
         assert_eq!(
             result(&response)["structuredContent"]["symbol"]["name"],
             "leptos_axum::ResponseOptions"
+        );
+    }
+
+    #[tokio::test]
+    async fn api_lookup_tool_maps_ambiguous_and_unknown_queries_to_invalid_params() {
+        let server = McpServer::new();
+        let ambiguous = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"lookup-api","arguments":{"query":"extractor"}}}"#,
+            )
+            .await
+            .expect("request should receive a response");
+
+        assert_eq!(error_code(&ambiguous), -32602);
+        assert!(ambiguous.result.is_none());
+        assert!(error_message(&ambiguous).contains("Ambiguous API symbol 'extractor'"));
+
+        let unknown = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lookup-api","arguments":{"query":"not-a-real-symbol","crate":"leptos"}}}"#,
+            )
+            .await
+            .expect("request should receive a response");
+
+        assert_eq!(error_code(&unknown), -32602);
+        assert!(unknown.result.is_none());
+        assert_eq!(
+            error_message(&unknown),
+            "Unknown API symbol in crate leptos: not-a-real-symbol"
+        );
+    }
+
+    #[tokio::test]
+    async fn search_docs_tool_returns_ranked_structured_content() {
+        let server = McpServer::new();
+        let response = server
+            .handle_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search-docs","arguments":{"query":"server-fn"}}}"#,
+            )
+            .await
+            .expect("request should receive a response");
+
+        let structured = &result(&response)["structuredContent"];
+        assert_eq!(structured["kind"], "search-docs");
+        assert_eq!(structured["query"], "server-fn");
+
+        let results = structured["results"]
+            .as_array()
+            .expect("search results should be an array");
+        let first = results.first().expect("server-fn should match a section");
+        assert_eq!(first["section"]["id"], "server-functions");
+        assert_eq!(string_array(&first["matched_fields"]), vec!["aliases"]);
+        assert!(first["score"].is_number());
+        assert!(
+            first["why"]
+                .as_str()
+                .expect("why should be a string")
+                .contains("exact identity in aliases")
         );
     }
 
