@@ -40,6 +40,20 @@ request is opened.
   prompt arguments are also rejected; optional prompt arguments continue to render
   as empty strings when omitted.
 
+### Breaking lookup/search behavior
+
+- `search-docs` now ranks exact section IDs, resource URIs, declared aliases,
+  all-token matches, and partial-token matches in explicit tiers, and suppresses
+  noisy short/common matches. Queries that previously received a low-confidence
+  broad match may now return no result unless they use a stable identifier.
+- `lookup-api` now resolves exact symbols and declared aliases first, then uses
+  controlled prefix/token summary phases. Vague queries or same-tier multi-match
+  queries may now return `Ambiguous` or `Unknown` instead of a low-confidence
+  substring match; JSON-RPC clients should expect these as `-32602` validation
+  errors.
+- For stable automation, prefer exact section IDs, resource URIs, declared
+  aliases, and explicit crate filters such as `leptos`, `leptos_axum`, or `axum`.
+
 ## [0.1.0](https://github.com/nledford/leptos-mcp-server/releases/tag/v0.1.0) - 2026-06-10
 
 ### Other
