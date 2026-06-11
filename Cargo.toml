@@ -9,12 +9,16 @@ rust-version = "1.96"
 
 [workspace]
 
+[features]
+default = ["stdio"]
+stdio = ["rust-mcp-sdk/stdio"]
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }
 
 # MCP SDK
-rust-mcp-sdk = { version = "0.9.0", default-features = false, features = ["server", "stdio", "macros"] }
+rust-mcp-sdk = { version = "0.9.0", default-features = false, features = ["server", "macros"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
