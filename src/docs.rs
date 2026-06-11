@@ -1444,6 +1444,11 @@ mod tests {
 
     #[test]
     fn metadata_versions_match_api_symbol_versions_for_shared_crates() {
+        let expected_versions: HashMap<&str, &str> = HashMap::from([
+            ("leptos", LEPTOS_VERSION),
+            ("leptos_axum", LEPTOS_AXUM_VERSION),
+            ("axum", AXUM_VERSION),
+        ]);
         let expected_docs_urls: HashMap<&str, &str> = HashMap::from([
             ("leptos", LEPTOS_DOCS_URL),
             ("leptos_axum", LEPTOS_AXUM_DOCS_URL),
@@ -1470,6 +1475,14 @@ mod tests {
 
         for metadata in SECTION_METADATA {
             for crate_version in metadata.crate_versions {
+                if let Some(expected_version) = expected_versions.get(crate_version.name) {
+                    assert_eq!(
+                        crate_version.version, *expected_version,
+                        "metadata for section '{}' has crate '{}' version '{}' but API constant expects '{}'; update src/api.rs constants and src/docs.rs metadata together",
+                        metadata.id, crate_version.name, crate_version.version, expected_version
+                    );
+                }
+
                 let Some(expected_docs_url) = expected_docs_urls.get(crate_version.name) else {
                     continue;
                 };
@@ -1483,13 +1496,13 @@ mod tests {
 
                 assert_eq!(
                     crate_version.version, *api_version,
-                    "metadata for section '{}' has crate '{}' version that drifts from API symbols",
-                    metadata.id, crate_version.name
+                    "metadata for section '{}' has crate '{}' version '{}' but API symbols use '{}'; update API symbols and docs metadata together",
+                    metadata.id, crate_version.name, crate_version.version, api_version
                 );
                 assert_eq!(
                     crate_version.docs_url, *expected_docs_url,
-                    "metadata for section '{}' has crate '{}' docs_url that drifts from owned source URL",
-                    metadata.id, crate_version.name
+                    "metadata for section '{}' has crate '{}' docs_url '{}' but API docs URL constant expects '{}'; update src/api.rs docs URL constants and src/docs.rs metadata together",
+                    metadata.id, crate_version.name, crate_version.docs_url, expected_docs_url
                 );
             }
         }

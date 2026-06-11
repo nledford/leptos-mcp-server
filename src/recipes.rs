@@ -451,6 +451,54 @@ mod tests {
     }
 
     #[test]
+    fn recipe_crate_strings_match_api_version_constants() {
+        let expected_versions = HashMap::from([
+            ("leptos", crate::api::LEPTOS_VERSION),
+            ("leptos_axum", crate::api::LEPTOS_AXUM_VERSION),
+            ("axum", crate::api::AXUM_VERSION),
+        ]);
+
+        for recipe in all_recipes() {
+            for crate_entry in recipe.crates {
+                let Some((crate_name, version)) = crate_entry.split_once(' ') else {
+                    continue;
+                };
+                let Some(expected_version) = expected_versions.get(crate_name) else {
+                    continue;
+                };
+
+                assert_eq!(
+                    version, *expected_version,
+                    "recipe '{}' has crate string '{}' but API constant for crate '{}' expects version '{}'; update src/api.rs constants and src/recipes.rs crate strings together",
+                    recipe.id, crate_entry, crate_name, expected_version
+                );
+            }
+
+            for file in recipe.files {
+                if file.path == "Cargo.toml" {
+                    for (crate_name, expected_version) in &expected_versions {
+                        let dependency_prefix = format!("{crate_name} =");
+                        if !file.content.contains(&dependency_prefix) {
+                            continue;
+                        }
+
+                        let expected_fragment = format!("version = \"{expected_version}\"");
+                        assert!(
+                            file.content.contains(&expected_fragment),
+                            "recipe '{}' Cargo.toml example for crate '{}' must use API constant version '{}'; expected fragment '{}', got content: {}",
+                            recipe.id,
+                            crate_name,
+                            expected_version,
+                            expected_fragment,
+                            file.content
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn rust_recipe_snippet_inventory_exposes_current_classifications() {
         let snippets = rust_recipe_snippets();
 

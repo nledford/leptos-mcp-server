@@ -701,6 +701,37 @@ mod tests {
     }
 
     #[test]
+    fn owned_docs_urls_follow_catalog_pin_policy() {
+        let expectations = [
+            (
+                "leptos",
+                LEPTOS_VERSION,
+                LEPTOS_DOCS_URL,
+                "/latest/leptos/".to_string(),
+            ),
+            (
+                "leptos_axum",
+                LEPTOS_AXUM_VERSION,
+                LEPTOS_AXUM_DOCS_URL,
+                "/latest/leptos_axum/".to_string(),
+            ),
+            (
+                "axum",
+                AXUM_VERSION,
+                AXUM_DOCS_URL,
+                format!("/{AXUM_VERSION}/axum/"),
+            ),
+        ];
+
+        for (crate_name, version, docs_url, expected_path) in expectations.iter() {
+            assert!(
+                docs_url.contains(expected_path.as_str()),
+                "owned docs URL for crate '{crate_name}' must follow the catalog pin policy for version '{version}'; expected URL containing '{expected_path}', got '{docs_url}'"
+            );
+        }
+    }
+
+    #[test]
     fn api_rust_snippet_inventory_exposes_current_classifications() {
         let snippets = rust_api_snippets();
 
