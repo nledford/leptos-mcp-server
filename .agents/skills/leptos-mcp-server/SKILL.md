@@ -57,7 +57,7 @@ Tools:
 - `leptos-axum-recipe` — return task recipes with steps, example files, and validation.
 - `leptos-diagnostics` — analyze provided code and return structured heuristic diagnostics.
 
-Resources use `leptos://docs/<section-id>` URIs. Prompts include `wire-leptos-axum-ssr`, `add-server-function`, `review-sql-access`, `debug-hydration`, and `review-axum-integration`.
+Resources use `leptos://docs/<section-id>` URIs and expose the template `leptos://docs/{section}`. Prompts include `wire-leptos-axum-ssr`, `add-server-function`, `review-sql-access`, `debug-hydration`, and `review-axum-integration`.
 
 Use [tools.md](references/tools.md) for exact names, schemas, output shapes, resources, prompts, and known error messages.
 
@@ -75,15 +75,15 @@ Use [tools.md](references/tools.md) for exact names, schemas, output shapes, res
 - Tool schemas are strict; omit extra fields.
 - `get-documentation` requires a canonical section id or declared alias; arbitrary substring matching is intentionally rejected.
 - `leptos-diagnostics.code` must be non-empty and no more than 262144 bytes.
-- All tool calls return text plus `structuredContent`; prefer structured fields for programmatic decisions.
-- Prompt argument metadata marks required arguments, but missing values render as empty strings. Validate required values client-side before calling prompts.
+- Successful tool calls return text plus `structuredContent`; SDK tool error results return `isError: true` with text only.
+- Prompt calls enforce required arguments; missing or blank required values and unknown prompt arguments return prompt argument errors.
 
 ## Security and privacy considerations
 
 - The server is documentation-only/read-only: no filesystem writes, command execution, runtime network fetches, database connections, migrations, or query execution.
 - User-supplied code/text passed to diagnostics or prompts is echoed in MCP responses and may be logged by the MCP client. Do not send secrets, tokens, credentials, or sensitive proprietary code unless the client environment is trusted.
 - SQL guidance is for application code patterns only; it does not grant database access.
-- Request lines are capped at 1 MiB and diagnostics code at 256 KiB.
+- Stdio framing and malformed-input behavior are SDK-native; diagnostics code is capped at 256 KiB.
 
 ## Verification checklist
 

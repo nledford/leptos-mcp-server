@@ -16,10 +16,10 @@
 ## JSON-RPC or MCP errors
 
 - Invalid JSON returns parse error `-32700`.
-- Missing/invalid `jsonrpc`, method, or params returns standard JSON-RPC errors.
+- Missing/invalid `jsonrpc`, method, or params returns SDK-native JSON-RPC/MCP errors.
 - Unknown method returns `-32601`.
-- Unknown tool names or bad params return invalid params.
-- Individual request lines must be at most 1 MiB.
+- Unknown tool names or bad tool params return SDK tool error results where applicable.
+- Stdio framing and malformed input are handled by `rust-mcp-sdk`; this project no longer adds a custom 1 MiB request-line cap.
 
 ## Tool argument errors
 
@@ -32,7 +32,7 @@
 
 - `prompts/get` requires a non-empty prompt name.
 - Prompt names normalize spaces/underscores to hyphens.
-- Required prompt arguments are not enforced by rendering. Missing values become empty strings, so validate arguments before calling.
+- Required prompt arguments are enforced; missing or blank required values and unknown arguments are rejected.
 
 ## Scope failures
 

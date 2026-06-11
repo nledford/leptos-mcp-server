@@ -3,12 +3,12 @@
 Protocol summary:
 
 - Transport: stdio, newline-delimited JSON-RPC 2.0.
-- MCP protocol version advertised by `initialize`: `2024-11-05`.
-- Supported methods: `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `prompts/list`, `prompts/get`.
+- MCP protocol version advertised by `initialize`: `2025-11-25`.
+- Supported methods: `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`.
 - Tool arguments are strict; unknown fields are rejected.
-- JSON-RPC request lines are limited to 1 MiB.
+- Stdio framing and malformed-input behavior are SDK-native; this project no longer adds a custom 1 MiB request-line cap.
 
-All tool calls return this outer shape:
+Successful tool calls return this outer shape:
 
 ```json
 {
@@ -18,6 +18,8 @@ All tool calls return this outer shape:
 ```
 
 Prefer `structuredContent` for decisions and `content[0].text` for display.
+SDK tool error results return `isError: true` with text content and no
+`structuredContent`.
 
 ## Tools
 
@@ -387,6 +389,21 @@ Resource URIs:
 - `leptos://docs/axum`
 - `leptos://docs/ssr-hydration-deployment`
 
+`resources/templates/list` exposes the documentation URI template:
+
+```json
+{
+  "resourceTemplates": [
+    {
+      "uriTemplate": "leptos://docs/{section}",
+      "name": "leptos-doc-section",
+      "description": "Leptos documentation section by canonical section id",
+      "mimeType": "text/markdown"
+    }
+  ]
+}
+```
+
 Common errors:
 
 - `resources/read params are required`
@@ -429,7 +446,7 @@ Prompt names and arguments:
 
 Prompt names normalize spaces/underscores to hyphens, so `review_sql_access` resolves to `review-sql-access`.
 
-Caveat: required prompt arguments are advertised but not enforced by rendering; missing values render as empty strings. Validate required arguments before calling.
+Required prompt arguments are enforced. Missing or blank required values and unknown prompt arguments return invalid-params prompt errors.
 
 Common errors:
 
