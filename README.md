@@ -82,6 +82,17 @@ harness compile it without guessing about missing surroundings? If yes, mark it
 `CompileCandidate`; if no but it is useful example code, mark it `Illustrative`;
 if it is not example code, mark it `Ignore`.
 
+Run the snippet validation harness before publishing documentation changes:
+
+```bash
+cargo test snippets
+```
+
+Reclassify snippets whenever a Rust docs, recipe, or API example is added,
+removed, or changes between a complete compile candidate and an illustrative or
+ignored example. The snippet test verifies the inventory/classification filters
+and compiles the examples currently classified as compile candidates.
+
 ## Prerequisites
 
 - Rust 1.96 or newer. `Cargo.toml` declares `rust-version = "1.96"`, and CI
@@ -264,6 +275,9 @@ cargo fmt -- --check
 
 # Run tests
 cargo test --locked
+
+# Validate Rust snippet classification and compile candidates
+cargo test snippets
 
 # Lint all targets
 cargo clippy --locked --all-targets -- -D warnings

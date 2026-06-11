@@ -1,5 +1,5 @@
 use leptos_mcp_server::api::rust_api_snippets;
-use leptos_mcp_server::docs::{rust_code_blocks, SnippetClassification};
+use leptos_mcp_server::docs::{SnippetClassification, get_section, rust_code_blocks};
 use leptos_mcp_server::recipes::rust_recipe_snippets;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -83,12 +83,23 @@ fn compile_candidate_docs_snippets_compile_with_shared_harness() {
         .filter(|block| block.classification == SnippetClassification::CompileCandidate)
         .collect();
 
-    assert!(!candidates.is_empty(), "expected at least one docs compile candidate");
+    assert!(
+        !candidates.is_empty(),
+        "expected at least one docs compile candidate"
+    );
 
     for (index, block) in candidates.iter().enumerate() {
+        let section = get_section(block.section_id).expect("docs snippet section should exist");
         compile_snippet(
             &format!("doc-{}-{index}", block.section_id),
             &block.content,
+            SnippetDiagnostic {
+                kind: "docs section",
+                id_label: "section id",
+                id: block.section_id,
+                source_path: section.source_path,
+                classification: block.classification,
+            },
         );
     }
 }
@@ -109,6 +120,13 @@ fn compile_candidate_recipe_snippets_compile_with_shared_harness() {
         compile_snippet(
             &format!("recipe-{}-{index}", snippet.recipe_id),
             snippet.content,
+            SnippetDiagnostic {
+                kind: "recipe",
+                id_label: "recipe id",
+                id: snippet.recipe_id,
+                source_path: snippet.path,
+                classification: snippet.classification,
+            },
         );
     }
 }
@@ -120,17 +138,36 @@ fn compile_candidate_api_snippets_compile_with_shared_harness() {
         .filter(|snippet| snippet.classification == SnippetClassification::CompileCandidate)
         .collect();
 
-    assert!(!candidates.is_empty(), "expected at least one API compile candidate");
+    assert!(
+        !candidates.is_empty(),
+        "expected at least one API compile candidate"
+    );
 
     for (index, snippet) in candidates.iter().enumerate() {
         compile_snippet(
             &format!("api-{}-{index}", snippet.symbol_name),
             snippet.content,
+            SnippetDiagnostic {
+                kind: "API catalog snippet",
+                id_label: "symbol name",
+                id: snippet.symbol_name,
+                source_path: "src/api.rs",
+                classification: snippet.classification,
+            },
         );
     }
 }
 
-fn compile_snippet(name: &str, snippet: &str) {
+#[derive(Clone, Copy)]
+struct SnippetDiagnostic {
+    kind: &'static str,
+    id_label: &'static str,
+    id: &'static str,
+    source_path: &'static str,
+    classification: SnippetClassification,
+}
+
+fn compile_snippet(name: &str, snippet: &str, diagnostic: SnippetDiagnostic) {
     let source_path = write_compile_unit(name, snippet);
     let output_path = source_path.with_extension("bin");
     let output = Command::new("rustc")
@@ -138,7 +175,11 @@ fn compile_snippet(name: &str, snippet: &str) {
         .arg("--crate-name")
         .arg(sanitize_crate_name(name))
         .arg("--out-dir")
-        .arg(source_path.parent().expect("source path should have parent"))
+        .arg(
+            source_path
+                .parent()
+                .expect("source path should have parent"),
+        )
         .arg(&source_path)
         .arg("-o")
         .arg(&output_path)
@@ -147,7 +188,13 @@ fn compile_snippet(name: &str, snippet: &str) {
 
     assert!(
         output.status.success(),
-        "snippet '{name}' failed to compile\nstdout:\n{}\nstderr:\n{}",
+        "snippet '{name}' failed to compile\nkind: {}\n{}: {}\nsource path: {}\nclassification: {:?}\ngenerated fixture: {}\nstdout:\n{}\nstderr:\n{}",
+        diagnostic.kind,
+        diagnostic.id_label,
+        diagnostic.id,
+        diagnostic.source_path,
+        diagnostic.classification,
+        source_path.display(),
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

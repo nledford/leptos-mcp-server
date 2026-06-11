@@ -40,10 +40,20 @@ Default bump policy:
 
 1. Merge user-facing changes to `main` using Conventional Commit messages.
 2. Wait for CI to pass on `main`.
-3. Review the generated release PR from `release-plz`.
-4. Confirm the version bump and changelog match the included commits.
-5. Merge the release PR after required checks and reviews pass.
-6. Wait for CI and the Release workflow to complete. The workflow creates the
+3. Before publishing documentation or release changes, run the snippet validation
+   harness locally:
+
+   ```bash
+   cargo test snippets
+   ```
+
+   If any Rust docs, recipe, or API example was added, removed, or changed from a
+   complete example to an illustrative/ignored example (or back), update its
+   snippet classification before publishing.
+4. Review the generated release PR from `release-plz`.
+5. Confirm the version bump and changelog match the included commits.
+6. Merge the release PR after required checks and reviews pass.
+7. Wait for CI and the Release workflow to complete. The workflow creates the
    `vX.Y.Z` tag and GitHub Release.
 
 Do not manually create release tags during the normal process. For emergency
