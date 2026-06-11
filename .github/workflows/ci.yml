@@ -12,25 +12,22 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  RUST_VERSION: 1.96.0
+
 jobs:
-  msrv:
-    name: Check and test (${{ matrix.rust }})
+  quality:
+    name: Format, check, test, clippy
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        rust:
-          - 1.96.0
-          - stable
     steps:
       - name: Checkout repository
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install "${{ matrix.rust }}" --profile minimal
-          rustup default "${{ matrix.rust }}"
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_VERSION"
 
       - name: Cache Cargo data
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -40,16 +37,61 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-msrv-${{ matrix.rust }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-quality-${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
 
-      - name: Check
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Check default stdio build
         run: cargo check --locked
 
-      - name: Test
+      - name: Test default stdio build
         run: cargo test --locked
 
-  fmt:
-    name: Format
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+  feature-matrix:
+    name: Feature matrix (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default-stdio
+            cargo-args: ""
+          - name: explicit-stdio
+            cargo-args: --no-default-features --features stdio
+          - name: all-features
+            cargo-args: --all-features
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+
+      - name: Cache Cargo data
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-feature-${{ matrix.name }}-${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+
+      - name: Check ${{ matrix.name }}
+        run: cargo check --locked ${{ matrix.cargo-args }}
+
+      - name: Test ${{ matrix.name }}
+        run: cargo test --locked ${{ matrix.cargo-args }}
+
+  feature-policy:
+    name: Feature policy
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -58,8 +100,8 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt
-          rustup default stable
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
 
       - name: Cache Cargo data
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -69,39 +111,39 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-fmt-stable-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-feature-policy-${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
 
-      - name: Format
-        run: cargo fmt -- --check
-
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-
-      - name: Install Rust toolchain
+      - name: Verify stdio-only feature policy
         run: |
-          rustup toolchain install stable --profile minimal --component clippy
-          rustup default stable
+          cargo tree --locked -e features --features stdio --depth 1 > /tmp/leptos-mcp-feature-tree.txt
+          python3 - <<'PY'
+          import re
+          import tomllib
+          from pathlib import Path
 
-      - name: Cache Cargo data
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-cargo-clippy-stable-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          manifest = tomllib.loads(Path("Cargo.toml").read_text())
+          features = manifest["features"]
+          sdk = manifest["dependencies"]["rust-mcp-sdk"]
 
-      - name: Clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
+          assert features["default"] == ["stdio"]
+          assert features["stdio"] == ["rust-mcp-sdk/stdio"]
+          assert sdk.get("default-features") is False
+          assert set(sdk["features"]) == {"server", "macros"}
+
+          unsupported = {"http", "sse", "websocket", "ws", "tcp", "auth", "oauth"}
+          exposed = unsupported.intersection(features)
+          assert not exposed, f"unsupported public features exposed: {sorted(exposed)}"
+
+          allowed_sdk_features = {"server", "macros", "stdio"}
+          tree = Path("/tmp/leptos-mcp-feature-tree.txt").read_text()
+          sdk_features = set(re.findall(r'rust-mcp-sdk feature "([^"]+)"', tree))
+          disallowed = sdk_features - allowed_sdk_features
+          assert not disallowed, f"unexpected rust-mcp-sdk features enabled: {sorted(disallowed)}"
+          assert {"server", "macros"}.issubset(sdk_features)
+          PY
 
   build-smoke:
-    name: Build and smoke test
+    name: Build and stdio smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -110,8 +152,8 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
 
       - name: Cache Cargo data
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -121,12 +163,12 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-build-smoke-stable-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-build-smoke-${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
 
       - name: Build release
         run: cargo build --release --locked
 
-      - name: Binary smoke
+      - name: Stdio binary smoke
         run: |
           echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
             | ./target/release/leptos-mcp-server \
@@ -153,8 +195,8 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
 
       - name: Cache Cargo data
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -164,7 +206,7 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-coverage-stable-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-coverage-${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@492cad282ff2bc751208d9bdcbbcce57c3a90925 # cargo-llvm-cov
@@ -183,8 +225,8 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
 
       - name: Cache Cargo data
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -194,7 +236,7 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-dependency-policy-stable-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-dependency-policy-${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
 
       - name: Install cargo-audit
         uses: taiki-e/install-action@08b635a8ab62d28d92494f1a6ebd22feeb2be229 # cargo-audit
@@ -215,9 +257,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs:
-      - msrv
-      - fmt
-      - clippy
+      - quality
+      - feature-matrix
+      - feature-policy
       - build-smoke
       - coverage
       - dependency-policy
@@ -225,9 +267,9 @@ jobs:
     steps:
       - name: Require all CI jobs to pass
         run: |
-          test "${{ needs.msrv.result }}" = "success"
-          test "${{ needs.fmt.result }}" = "success"
-          test "${{ needs.clippy.result }}" = "success"
+          test "${{ needs.quality.result }}" = "success"
+          test "${{ needs.feature-matrix.result }}" = "success"
+          test "${{ needs.feature-policy.result }}" = "success"
           test "${{ needs.build-smoke.result }}" = "success"
           test "${{ needs.coverage.result }}" = "success"
           test "${{ needs.dependency-policy.result }}" = "success"
