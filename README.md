@@ -426,6 +426,8 @@ error behavior in automation.
 - Structured output: successful tool calls still include human-readable text, but
   clients should prefer SDK `structuredContent` objects for automation. Tool
   error results do not include structured content.
+- Prompt validation: `prompts/get` rejects missing or blank required arguments
+  and unknown prompt arguments with SDK invalid-params prompt errors.
 - Resources/templates: concrete docs remain available as `leptos://docs/<section>`
   resources, and `resources/templates/list` now exposes the template
   `leptos://docs/{section}`. Completion remains intentionally absent.
@@ -481,8 +483,9 @@ MCP server.
   complete JSON object per line.
 - stdout is reserved for JSON-RPC responses. Use stderr or `RUST_LOG` for logs;
   redirect stderr when you need raw JSON output in shell pipelines.
-- Tool arguments are strict. Extra fields or unknown tool names return
-  JSON-RPC errors.
+- Tool arguments are strict. Extra fields and unknown tool names return SDK tool
+  error results where applicable; malformed protocol or schema requests use
+  SDK-native JSON-RPC/MCP errors.
 - `get-documentation` requires a canonical section id or alias from
   `list-sections`; arbitrary substrings are rejected.
 - The SDK stdio transport replaced the previous custom JSON-RPC line reader; the
