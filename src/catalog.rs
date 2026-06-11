@@ -1,11 +1,7 @@
 //! Pure MCP capability and catalog response builders.
 
-use crate::docs;
-use crate::prompts;
-use crate::tools::{
-    GET_DOCUMENTATION_TOOL, LEPTOS_AXUM_RECIPE_TOOL, LEPTOS_DIAGNOSTICS_TOOL, LIST_SECTIONS_TOOL,
-    LOOKUP_API_TOOL, MAX_DIAGNOSTIC_CODE_BYTES, SEARCH_DOCS_TOOL,
-};
+use crate::app::LeptosApp;
+use crate::tools::MAX_DIAGNOSTIC_CODE_BYTES;
 use serde_json::{Value, json};
 
 pub fn initialize_result(protocol_version: &str, server_version: &str) -> Value {
@@ -23,12 +19,14 @@ pub fn initialize_result(protocol_version: &str, server_version: &str) -> Value 
     })
 }
 
-pub fn tools_list_result() -> Value {
+pub fn tools_list_result(app: &LeptosApp) -> Value {
+    let tools = app.list_tools();
+
     json!({
         "tools": [
             {
-                "name": LIST_SECTIONS_TOOL,
-                "description": "List all available Leptos documentation sections with canonical ids, aliases, and version metadata",
+                "name": tools.tools[0].name,
+                "description": tools.tools[0].description,
                 "inputSchema": {
                     "type": "object",
                     "properties": {},
@@ -36,8 +34,8 @@ pub fn tools_list_result() -> Value {
                 }
             },
             {
-                "name": GET_DOCUMENTATION_TOOL,
-                "description": "Get Leptos documentation for a canonical section id or declared alias",
+                "name": tools.tools[1].name,
+                "description": tools.tools[1].description,
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -51,8 +49,8 @@ pub fn tools_list_result() -> Value {
                 }
             },
             {
-                "name": LEPTOS_DIAGNOSTICS_TOOL,
-                "description": "Analyze Leptos code and return structured diagnostics",
+                "name": tools.tools[2].name,
+                "description": tools.tools[2].description,
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -67,8 +65,8 @@ pub fn tools_list_result() -> Value {
                 }
             },
             {
-                "name": SEARCH_DOCS_TOOL,
-                "description": "Search Leptos, leptos_axum, and Axum documentation sections by task, API, or failure mode",
+                "name": tools.tools[3].name,
+                "description": tools.tools[3].description,
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -82,8 +80,8 @@ pub fn tools_list_result() -> Value {
                 }
             },
             {
-                "name": LOOKUP_API_TOOL,
-                "description": "Look up a curated Leptos, leptos_axum, or Axum public API symbol",
+                "name": tools.tools[4].name,
+                "description": tools.tools[4].description,
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -102,8 +100,8 @@ pub fn tools_list_result() -> Value {
                 }
             },
             {
-                "name": LEPTOS_AXUM_RECIPE_TOOL,
-                "description": "Return a task-oriented recipe for common Leptos + Axum workflows",
+                "name": tools.tools[5].name,
+                "description": tools.tools[5].description,
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -120,15 +118,17 @@ pub fn tools_list_result() -> Value {
     })
 }
 
-pub fn resources_list_result() -> Value {
-    let resources = docs::list_sections()
-        .iter()
-        .map(|section| {
+pub fn resources_list_result(app: &LeptosApp) -> Value {
+    let resources = app
+        .list_resources()
+        .resources
+        .into_iter()
+        .map(|resource| {
             json!({
-                "uri": docs::resource_uri(section),
-                "name": section.title,
-                "description": section.use_cases,
-                "mimeType": "text/markdown"
+                "uri": resource.uri,
+                "name": resource.name,
+                "description": resource.description,
+                "mimeType": resource.mime_type
             })
         })
         .collect::<Vec<_>>();
@@ -136,9 +136,11 @@ pub fn resources_list_result() -> Value {
     json!({ "resources": resources })
 }
 
-pub fn prompts_list_result() -> Value {
-    let prompts = prompts::all_prompts()
-        .iter()
+pub fn prompts_list_result(app: &LeptosApp) -> Value {
+    let prompts = app
+        .list_prompts()
+        .prompts
+        .into_iter()
         .map(|prompt| {
             json!({
                 "name": prompt.name,

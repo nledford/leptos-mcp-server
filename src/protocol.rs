@@ -5,12 +5,12 @@
 //! while pure capability/catalog construction belongs in `catalog` and the
 //! domain modules it aggregates.
 
+use crate::app::{AppError, LeptosApp, ToolCall};
 use crate::catalog;
-use crate::docs;
 use crate::prompts;
 use crate::tools::{
     GET_DOCUMENTATION_TOOL, LEPTOS_AXUM_RECIPE_TOOL, LEPTOS_DIAGNOSTICS_TOOL, LIST_SECTIONS_TOOL,
-    LOOKUP_API_TOOL, LeptosTools, SEARCH_DOCS_TOOL, ToolError,
+    LOOKUP_API_TOOL, SEARCH_DOCS_TOOL, ToolError,
 };
 use crate::transport::{LineRead, read_limited_line};
 use anyhow::Result;
@@ -24,7 +24,7 @@ const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
 pub const MAX_JSON_RPC_LINE_BYTES: usize = 1024 * 1024;
 
 pub struct McpServer {
-    tools: LeptosTools,
+    app: LeptosApp,
 }
 
 #[derive(Debug, Deserialize)]
@@ -147,7 +147,7 @@ struct ToolResult {
 impl McpServer {
     pub fn new() -> Self {
         Self {
-            tools: LeptosTools::new(),
+            app: LeptosApp::new(),
         }
     }
 
@@ -257,7 +257,7 @@ impl McpServer {
     }
 
     fn handle_list_tools(&self) -> Value {
-        catalog::tools_list_result()
+        catalog::tools_list_result(&self.app)
     }
 
     fn handle_call_tool(&self, params: Option<Value>) -> Result<Value, ProtocolError> {
@@ -270,28 +270,36 @@ impl McpServer {
         let output = match call.name.as_str() {
             LIST_SECTIONS_TOOL => {
                 let _: ListSectionsArgs = parse_arguments(call.arguments)?;
-                self.tools.list_sections()
+                self.app.call_tool(ToolCall::ListSections)?
             }
             GET_DOCUMENTATION_TOOL => {
                 let args: DocumentationArgs = parse_arguments(call.arguments)?;
-                self.tools.get_documentation(&args.section)?
+                self.app.call_tool(ToolCall::GetDocumentation {
+                    section: &args.section,
+                })?
             }
             LEPTOS_DIAGNOSTICS_TOOL => {
                 let args: DiagnosticsArgs = parse_arguments(call.arguments)?;
-                self.tools.diagnose_leptos_code(&args.code)?
+                self.app
+                    .call_tool(ToolCall::DiagnoseLeptosCode { code: &args.code })?
             }
             SEARCH_DOCS_TOOL => {
                 let args: SearchDocsArgs = parse_arguments(call.arguments)?;
-                self.tools.search_docs(&args.query)?
+                self.app
+                    .call_tool(ToolCall::SearchDocs { query: &args.query })?
             }
             LOOKUP_API_TOOL => {
                 let args: ApiLookupArgs = parse_arguments(call.arguments)?;
-                self.tools
-                    .lookup_api(&args.query, args.crate_name.as_deref())?
+                self.app.call_tool(ToolCall::LookupApi {
+                    query: &args.query,
+                    crate_name: args.crate_name.as_deref(),
+                })?
             }
             LEPTOS_AXUM_RECIPE_TOOL => {
                 let args: RecipeArgs = parse_arguments(call.arguments)?;
-                self.tools.leptos_axum_recipe(&args.recipe)?
+                self.app.call_tool(ToolCall::LeptosAxumRecipe {
+                    recipe: &args.recipe,
+                })?
             }
             _ => return Err(ToolError::UnknownTool(call.name).into()),
         };
@@ -310,7 +318,7 @@ impl McpServer {
     }
 
     fn handle_list_resources(&self) -> Value {
-        catalog::resources_list_result()
+        catalog::resources_list_result(&self.app)
     }
 
     fn handle_read_resource(&self, params: Option<Value>) -> Result<Value, ProtocolError> {
@@ -319,25 +327,21 @@ impl McpServer {
         })?;
         let params: ResourceReadParams = serde_json::from_value(params)
             .map_err(|error| ProtocolError::InvalidParams(error.to_string()))?;
-        let catalog_section =
-            docs::get_catalog_section_by_resource_uri(&params.uri).map_err(|error| {
-                ProtocolError::InvalidParams(ToolError::DocumentationLookup(error).message())
-            })?;
-        let section = catalog_section.section;
+        let content = self.app.read_resource(&params.uri)?;
 
         Ok(json!({
             "contents": [
                 {
-                    "uri": params.uri,
-                    "mimeType": "text/markdown",
-                    "text": format!("# {}\n\n{}", section.title, section.content)
+                    "uri": content.uri,
+                    "mimeType": content.mime_type,
+                    "text": content.text
                 }
             ]
         }))
     }
 
     fn handle_list_prompts(&self) -> Value {
-        catalog::prompts_list_result()
+        catalog::prompts_list_result(&self.app)
     }
 
     fn handle_get_prompt(&self, params: Option<Value>) -> Result<Value, ProtocolError> {
@@ -346,19 +350,19 @@ impl McpServer {
         })?;
         let params: PromptGetParams = serde_json::from_value(params)
             .map_err(|error| ProtocolError::InvalidParams(error.to_string()))?;
-        let prompt = prompts::get_prompt(&params.name)
-            .map_err(|error| ProtocolError::InvalidParams(prompt_error_message(error)))?;
-        let text = prompts::render_prompt_checked(prompt, &params.arguments)
-            .map_err(|error| ProtocolError::InvalidParams(error.to_string()))?;
+        let prompt = self
+            .app
+            .get_prompt(&params.name, &params.arguments)
+            .map_err(prompt_app_error)?;
 
         Ok(json!({
             "description": prompt.description,
             "messages": [
                 {
-                    "role": "user",
+                    "role": prompt.messages[0].role,
                     "content": {
-                        "type": "text",
-                        "text": text
+                        "type": prompt.messages[0].content_type,
+                        "text": prompt.messages[0].text
                     }
                 }
             ]
@@ -459,6 +463,14 @@ fn prompt_error_message(error: prompts::PromptLookupError) -> String {
     }
 }
 
+fn prompt_app_error(error: AppError) -> ProtocolError {
+    match error {
+        AppError::Tool(error) => error.into(),
+        AppError::PromptLookup(error) => ProtocolError::InvalidParams(prompt_error_message(error)),
+        AppError::PromptRender(error) => ProtocolError::InvalidParams(error.to_string()),
+    }
+}
+
 fn parse_arguments<T>(arguments: Value) -> Result<T, ProtocolError>
 where
     T: for<'de> Deserialize<'de>,
@@ -486,6 +498,7 @@ fn oversized_line_error_response() -> JsonRpcResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::docs;
     use crate::tools::MAX_DIAGNOSTIC_CODE_BYTES;
     use std::collections::BTreeSet;
 
