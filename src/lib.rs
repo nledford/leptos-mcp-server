@@ -6,6 +6,7 @@
 //! capabilities, with `catalog` assembling their public capability metadata.
 
 pub mod api;
+pub mod app;
 pub mod catalog;
 pub mod diagnostics;
 pub mod docs;
