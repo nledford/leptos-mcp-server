@@ -96,32 +96,237 @@ artifacts, maintainers must complete this concrete gate:
 
 ## Maintainer release steps
 
+Use this section as the maintainer checklist for the `0.2.0-alpha.*` migration
+line, the final `0.2.0` release, and any decision to defer v1. The goal is to
+avoid reconstructing the SDK migration context at release time: `0.2.0-alpha.1`
+and later alphas are pre-v1 validation releases for the `rust-mcp-sdk` stdio
+migration; `0.2.0` is the first non-alpha release of that migration after client
+validation is complete; v1 remains deferred unless maintainers explicitly decide
+the criteria below are met.
+
+### Current CI parity commands
+
+Run or confirm the matching CI jobs for the exact commit being released. The
+commands below mirror `.github/workflows/ci.yml` as of the `0.2.0-alpha.*`
+release line:
+
+```bash
+cargo +1.96.0 fmt --check
+cargo +1.96.0 check --locked
+cargo +1.96.0 test --locked
+cargo +1.96.0 clippy --locked --all-targets -- -D warnings
+
+cargo +1.96.0 check --locked
+cargo +1.96.0 test --locked
+cargo +1.96.0 check --locked --no-default-features --features stdio
+cargo +1.96.0 test --locked --no-default-features --features stdio
+cargo +1.96.0 check --locked --all-features
+cargo +1.96.0 test --locked --all-features
+
+cargo +1.96.0 tree --locked -e features --features stdio --depth 1
+cargo +1.96.0 build --release --locked
+cargo llvm-cov --locked --summary-only --fail-under-lines 70
+cargo audit
+cargo deny check
+```
+
+Also run the feature-policy assertions from CI, not just the `cargo tree`
+command: default features must remain `default = ["stdio"]`, `stdio` must map to
+`rust-mcp-sdk/stdio`, `rust-mcp-sdk` must stay on `default-features = false` with
+only `server` and `macros` declared directly, and no public HTTP/SSE/WebSocket,
+TCP, auth, or OAuth features may appear. If `cargo-llvm-cov`, `cargo-audit`,
+`cargo-deny`, or a named toolchain is not installed locally, install it or cite
+the passing CI job in the release PR notes.
+
+For documentation, recipe, and API example changes, also run:
+
+```bash
+cargo test snippets
+```
+
+### Manual MCP validation checklist
+
+Before approving a release PR or release Environment job, validate the release
+binary manually over stdio and through at least one real MCP client configuration.
+
+Raw stdin smoke flow:
+
+```bash
+cargo build --release --locked
+
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"release-smoke","version":"0"}}}' \
+  | ./target/release/leptos-mcp-server \
+  > /tmp/leptos-mcp-initialize.json
+python3 -m json.tool /tmp/leptos-mcp-initialize.json >/dev/null
+
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
+  | ./target/release/leptos-mcp-server \
+  > /tmp/leptos-mcp-tools.json
+python3 -m json.tool /tmp/leptos-mcp-tools.json >/dev/null
+
+echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list-sections","arguments":{}}}' \
+  | ./target/release/leptos-mcp-server \
+  > /tmp/leptos-mcp-list-sections.json
+python3 -m json.tool /tmp/leptos-mcp-list-sections.json >/dev/null
+
+echo '{"jsonrpc":"2.0","id":4,"method":"resources/templates/list","params":{}}' \
+  | ./target/release/leptos-mcp-server \
+  > /tmp/leptos-mcp-resource-templates.json
+python3 -m json.tool /tmp/leptos-mcp-resource-templates.json >/dev/null
+
+echo '{"jsonrpc":"2.0","id":5,"method":"prompts/list","params":{}}' \
+  | ./target/release/leptos-mcp-server \
+  > /tmp/leptos-mcp-prompts.json
+python3 -m json.tool /tmp/leptos-mcp-prompts.json >/dev/null
+```
+
+Confirm the responses advertise only the implemented capabilities: tools,
+concrete documentation resources, `resources/templates/list`, and prompts.
+Completion must remain absent. Confirm stderr contains logs only and stdout is
+valid JSON-RPC.
+
+Client smoke flow:
+
+- Configure a local/stdio MCP client such as Claude Desktop, Antigravity, or
+  OpenCode with an absolute path to `target/release/leptos-mcp-server` and
+  `--transport stdio`; do not configure a URL.
+- Restart the client and confirm it discovers the six tools documented in
+  `README.md`: `list-sections`, `get-documentation`, `search-docs`,
+  `lookup-api`, `leptos-axum-recipe`, and `leptos-diagnostics`.
+- Exercise at least one docs lookup (`get-documentation` for `signals`), one
+  search (`search-docs` for `Axum state`), one API lookup (`ResponseOptions` in
+  `leptos_axum`), one recipe (`ssr-app`), resource listing/reading, and prompt
+  listing/rendering.
+- Test an invalid tool argument or unknown lookup and confirm the client handles
+  SDK-native JSON-RPC/MCP errors without assuming `0.1.0` custom error text.
+- Record the client name/version, binary path, commit SHA, and any observed
+  migration incompatibilities in the release PR or release notes.
+
+### `0.2.0-alpha.1` checklist
+
+- Confirm the release is explicitly labeled pre-v1 and alpha in the release PR,
+  GitHub Release notes, and changelog entry.
+- Confirm `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, and the release PR title
+  agree on `0.2.0-alpha.1` / `v0.2.0-alpha.1`.
+- Run or cite the current CI parity commands above, including feature matrix,
+  feature policy, build-smoke, coverage, and dependency-policy jobs.
+- Complete the raw stdin and MCP client smoke flows above against the release
+  binary.
+- Review docs for migration context: README capability snapshot, migration notes,
+  protocol section, performance/input limits, MCP smoke tests, and this release
+  document must all agree that stdio is the only implemented transport,
+  completion is absent, and errors are SDK-native.
+- Review `CHANGELOG.md` for SDK migration scope, migration notes from `0.1.0`,
+  security-sensitive notes, breaking diagnostic behavior, breaking prompt
+  behavior, and breaking lookup/search behavior.
+- Confirm network transports remain disabled/deferred: no Cargo features for
+  HTTP/SSE/network/auth/CORS, unsupported transport selections fail closed before
+  tracing/server startup/listener creation, and no network security claims are
+  made.
+- Run `release-plz release-pr --dry-run` when checking the generated release PR
+  locally, and run `release-plz release --dry-run` before approving tag/GitHub
+  Release creation. The dry-runs must propose only the expected alpha release
+  actions.
+- Do not enable crates.io, package registry, Docker, binary artifact, or hosted
+  endpoint publishing; `release-plz.toml` must remain `git_only = true`.
+
+### Subsequent `0.2.0-alpha.N` checklist
+
+- Use another alpha when client validation, docs wording, SDK-native protocol
+  behavior, or release automation still needs field feedback before `0.2.0`.
+- Preserve the same release gates as `0.2.0-alpha.1`; do not weaken CI parity,
+  manual stdio validation, client validation, docs review, dependency review, or
+  token/workflow safety checks.
+- Re-test any MCP client or automation that reported an incompatibility in a
+  previous alpha, and document whether the issue is fixed, accepted as a breaking
+  migration behavior, or still open.
+- Update `CHANGELOG.md` with every user-facing alpha delta, especially breaking
+  SDK-native error/result behavior, stdio framing/malformed-input observations,
+  diagnostics severity/confidence changes, prompt argument validation changes,
+  lookup/search behavior changes, and docs/capability corrections.
+- Keep network transports deferred unless the separate network security review
+  below has been completed and the implementation has its own tests and release
+  notes. An alpha tag by itself is not approval to expose a network listener.
+
+### `0.2.0` checklist
+
+- Cut `0.2.0` only after at least one `0.2.0-alpha.*` has passed CI, raw stdio
+  smoke testing, and real MCP client validation without unresolved release-blocking
+  migration issues.
+- Confirm all known `0.1.0` to `0.2.0` migration differences are documented in
+  README and `CHANGELOG.md`, including SDK-native errors, structured content,
+  resources/templates, absent completion, removed custom 1 MiB stdin line-limit
+  semantics, and deferred network transports.
+- Confirm `CHANGELOG.md` no longer leaves release-critical migration context only
+  under `Unreleased`; the generated `release-plz` release PR must move it into the
+  `0.2.0` release entry or otherwise produce equivalent GitHub Release notes.
+- Re-run or cite the full current CI parity commands, raw stdin smoke flow, and
+  MCP client smoke flow on the exact `0.2.0` commit.
+- Confirm `release-plz.toml` remains consistent with intended publishing status:
+  `git_only = true`, package-level `git_tag_enable = true`, and package-level
+  `git_release_enable = true` for Git tags/GitHub Releases only.
+- Confirm no v1 claims are made in docs, release notes, or client guidance.
+
+### Network transport security review gate
+
+Network support must not be enabled, documented as available, exposed behind a
+Cargo feature, or made publicly reachable until a separate security review has
+approved the implementation and release notes. That review must cover at least:
+
+- explicit opt-in transport selection and safe defaults (`stdio` remains default;
+  any host default is loopback such as `127.0.0.1`; ports are explicit);
+- authentication/authorization strategy, including a decision for local-only,
+  private network, and public exposure cases;
+- CORS policy with no wildcard default for credentialed/public use;
+- HTTP request body limits, JSON-RPC/message size limits, malformed-input
+  handling, read/request/handler timeouts, connection limits, and backpressure;
+- logging and error sanitization for malformed requests, credentials, headers,
+  request bodies, and panics;
+- tests proving unsupported or disabled transports fail closed before listener
+  creation, plus positive tests for any enabled network listener and negative
+  tests for auth/CORS/limit failures;
+- release documentation that distinguishes stdio support from network support and
+  avoids public-service security claims unless the controls are implemented.
+
+Any PR that enables HTTP, streamable HTTP, SSE, WebSocket, TCP, auth, OAuth,
+CORS, or network timeout/limit behavior is security-sensitive and requires Warp
+review before release.
+
+### v1 deferral criteria
+
+Do not cut `1.0.0` as part of the `0.2.0-alpha.*` or `0.2.0` process unless
+maintainers explicitly decide all v1 criteria are met. Defer v1 when any of the
+following are true:
+
+- the SDK migration has not completed at least one alpha and one non-alpha
+  release cycle with successful MCP client validation;
+- supported capability boundaries are still changing, including completion,
+  resources/templates, prompts, diagnostics contracts, or network transport
+  posture;
+- malformed-input, stdio framing, SDK-native error/result shapes, or structured
+  output behavior still need compatibility feedback from downstream clients;
+- network transports are still disabled/deferred or have not completed the
+  separate security review gate if maintainers want network support in v1;
+- release automation, token scope, tag protection, changelog generation, or
+  publishing/distribution policy is still being revised;
+- README, `CHANGELOG.md`, embedded docs/catalog metadata, Agent Skill guidance,
+  and release notes are not aligned on supported behavior; or
+- maintainers are not ready to treat the current tool/resource/prompt schemas and
+  MCP behavior as stable public contracts.
+
+If all v1 criteria are met later, open a dedicated v1 release-policy PR instead
+of promoting an alpha or `0.2.0` release opportunistically.
+
 1. Merge user-facing changes to `main` using Conventional Commit messages.
 2. Wait for CI to pass on `main`.
-3. Before reviewing or merging a release PR, run the local release gate commands
-   that mirror CI:
-
-   ```bash
-   cargo +1.96.0 check --locked
-   cargo +1.96.0 test --locked
-   cargo +stable check --locked
-   cargo +stable test --locked
-   cargo fmt -- --check
-   cargo clippy --locked --all-targets -- -D warnings
-   cargo build --release --locked
-   cargo test snippets
-   cargo audit
-   cargo deny check
-   ```
+3. Before reviewing or merging a release PR, run the commands in
+   [Current CI parity commands](#current-ci-parity-commands), including the
+   feature matrix, feature-policy assertions, build-smoke, coverage, and
+   dependency-policy checks.
 
    If `cargo-audit`, `cargo-deny`, or a named toolchain is not installed locally,
    either install it and rerun the command or confirm the matching CI job passed
-   and document the local skip in the PR. If coverage is relevant to the change or
-   the CI coverage job is not trusted for the release branch, also run:
-
-   ```bash
-   cargo llvm-cov --locked --summary-only --fail-under-lines 70
-   ```
+   and document the local skip in the PR.
 4. For documentation, recipe, and API example changes, run the snippet validation
    harness locally even if the full gate above is skipped for a docs-only PR:
 
@@ -203,7 +408,7 @@ of the following are true:
 
 - the dependency has a stable public compatibility policy and frequent patch
   releases;
-- the dependency is exercised by CI with `--locked` on Rust 1.96.0 and stable;
+- the dependency is exercised by CI with `--locked` on Rust 1.96.0;
 - the current range does not admit a known security, MSRV, license, or runtime
   behavior problem; and
 - the resolved version in `Cargo.lock` is reviewed as part of release and
@@ -264,12 +469,13 @@ these categories:
 - GitHub Actions workflow permission changes, especially `contents`,
   `pull-requests`, `id-token`, package, or environment access.
 
-Security-sensitive malformed input and frame-size behavior changes from Plan 02,
-including earlier rejection of oversized or unterminated frames and the choice to
-return `id: null` after frame-bound failure, must be called out in the release
-notes. Security-sensitive dependency, release policy, token, tag-protection, and
-workflow-permission changes from Plan 08 must also be visible in the release PR
-review checklist and changelog before publishing.
+Security-sensitive malformed input and frame-size behavior changes must be called
+out in the release notes. For the `0.2.0-alpha.*` SDK migration line, this means
+calling out that the previous project-specific stdio JSON-RPC line reader and 1
+MiB line-bound semantics were removed, and that stdio framing and malformed-input
+behavior are now inherited from `rust-mcp-sdk`. Security-sensitive dependency,
+release policy, token, tag-protection, and workflow-permission changes must also
+be visible in the release PR review checklist and changelog before publishing.
 
 ## Breaking-change release note policy
 
@@ -310,15 +516,15 @@ trusted after frame-bound failure.
 Known intentional breaking-change families that must be documented when present
 in a release include:
 
-- Plan 02 malformed stdio framing behavior: earlier rejection of oversized or
-  unterminated frames, fixed line-bound enforcement, rejection timing at the
-  hard-cap violation byte, and `id: null` after frame-bound failure.
-- Plan 01 diagnostic behavior: changed rule severities, confidence levels, and
+- SDK migration stdio behavior: removal of the hand-rolled JSON-RPC line reader,
+  removal of the project-specific 1 MiB stdin line-bound contract, and adoption
+  of SDK-native stdio framing and malformed-input behavior.
+- Diagnostic behavior: changed rule severities, confidence levels, and
   any client guidance about treating diagnostics as advisory versus
   compiler-equivalent.
-- Plan 03 prompt behavior: required prompt argument enforcement, blank-value
+- Prompt behavior: required prompt argument enforcement, blank-value
   rejection, unknown-argument rejection, and the resulting `-32602` errors.
-- Plan 07 lookup/search behavior: revised search ranking, short/common-token
+- Lookup/search behavior: revised search ranking, short/common-token
   suppression, exact ID/alias preferences, and `Ambiguous` or `Unknown` outcomes
   replacing broad substring matches.
 
