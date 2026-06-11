@@ -581,6 +581,7 @@ mod tests {
         assert!(details.capabilities.tools.is_some());
         assert!(details.capabilities.resources.is_some());
         assert!(details.capabilities.prompts.is_some());
+        assert!(details.capabilities.completions.is_none());
     }
 
     #[test]

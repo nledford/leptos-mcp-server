@@ -208,6 +208,15 @@ fn readme_does_not_document_public_bind_cors_or_auth_shortcuts() {
     assert!(readme.contains("network listener is started"));
     assert!(readme.contains("request body/message limits"));
     assert!(readme.contains("read/request/handler timeouts"));
+    assert!(readme.contains("previous custom"));
+    assert!(readme.contains("1 MiB stdin line cap"));
+    assert!(readme.contains("256 KiB"));
+    assert!(
+        readme.contains(
+            "Embedded documentation and API/recipe catalogs are compiled into the binary"
+        )
+    );
+    assert!(readme.contains("resource descriptors currently advertise no `size` field"));
     assert_no_public_network_or_permissive_security_claims(&readme);
 }
 

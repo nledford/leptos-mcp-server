@@ -182,6 +182,11 @@ fn stdio_process_initializes_and_returns_json_responses() {
     assert!(initialize["result"]["capabilities"]["tools"].is_object());
     assert!(initialize["result"]["capabilities"]["resources"].is_object());
     assert!(initialize["result"]["capabilities"]["prompts"].is_object());
+    assert!(
+        initialize["result"]["capabilities"]
+            .get("completions")
+            .is_none()
+    );
     assert!(response_by_id(&responses, 2)["result"]["tools"].is_array());
 }
 
@@ -256,11 +261,20 @@ fn stdio_process_exposes_tools_resources_templates_and_prompts() {
     let responses = stdout_json_lines(&output);
     assert_eq!(responses.len(), 5);
     assert!(
-        response_by_id(&responses, 2)["result"]["tools"]
+        [
+            "list-sections",
+            "get-documentation",
+            "leptos-diagnostics",
+            "search-docs",
+            "lookup-api",
+            "leptos-axum-recipe",
+        ]
+        .iter()
+        .all(|name| response_by_id(&responses, 2)["result"]["tools"]
             .as_array()
             .expect("tools should be listed")
             .iter()
-            .any(|tool| tool["name"] == "lookup-api")
+            .any(|tool| tool["name"] == *name))
     );
     assert!(
         response_by_id(&responses, 3)["result"]["resources"]
@@ -286,32 +300,99 @@ fn stdio_process_exposes_tools_resources_templates_and_prompts() {
 }
 
 #[test]
-fn stdio_process_calls_tools_reads_resources_gets_prompts_and_surfaces_tool_errors() {
+fn stdio_process_calls_every_tool_reads_resources_gets_prompts_and_surfaces_tool_errors() {
     let output = run_server(&initialized_input(&[
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get-documentation","arguments":{"section":"signals"}}}"#,
-        r#"{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"leptos://docs/signals"}}"#,
-        r#"{"jsonrpc":"2.0","id":4,"method":"prompts/get","params":{"name":"debug-hydration","arguments":{"symptom":"WASM 404"}}}"#,
-        r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get-documentation","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list-sections","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get-documentation","arguments":{"section":"signals"}}}"#,
+        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"leptos-diagnostics","arguments":{"code":"fn App() -> impl IntoView { let count = signal(0); view! { <p>{count.get()}</p> } }"}}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"search-docs","arguments":{"query":"Axum state"}}}"#,
+        r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"lookup-api","arguments":{"query":"file_and_error_handler","crate":"leptos_axum"}}}"#,
+        r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"leptos-axum-recipe","arguments":{"recipe":"state"}}}"#,
+        r#"{"jsonrpc":"2.0","id":8,"method":"resources/read","params":{"uri":"leptos://docs/signals"}}"#,
+        r#"{"jsonrpc":"2.0","id":9,"method":"prompts/get","params":{"name":"debug-hydration","arguments":{"symptom":"WASM 404"}}}"#,
+        r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"get-documentation","arguments":{}}}"#,
     ]));
 
     assert!(output.status.success());
     let responses = stdout_json_lines(&output);
-    assert_eq!(responses.len(), 5);
+    assert_eq!(responses.len(), 10);
 
-    let tool_call = response_by_id(&responses, 2);
-    assert_eq!(tool_call["result"]["isError"], Value::Null);
+    let list_sections = response_by_id(&responses, 2);
+    assert_eq!(list_sections["result"]["isError"], Value::Null);
     assert_eq!(
-        tool_call["result"]["structuredContent"]["kind"],
+        list_sections["result"]["structuredContent"]["kind"],
+        "list-sections"
+    );
+    assert!(
+        list_sections["result"]["content"][0]["text"]
+            .as_str()
+            .expect("list-sections text should be a string")
+            .contains("* id: signals")
+    );
+
+    let get_documentation = response_by_id(&responses, 3);
+    assert_eq!(get_documentation["result"]["isError"], Value::Null);
+    assert_eq!(
+        get_documentation["result"]["structuredContent"]["kind"],
         "documentation"
     );
     assert!(
-        tool_call["result"]["content"][0]["text"]
+        get_documentation["result"]["content"][0]["text"]
             .as_str()
             .expect("tool text should be a string")
             .contains("Leptos Signals")
     );
 
-    let resource_read = response_by_id(&responses, 3);
+    let diagnostics = response_by_id(&responses, 4);
+    assert_eq!(diagnostics["result"]["isError"], Value::Null);
+    assert_eq!(
+        diagnostics["result"]["structuredContent"]["kind"],
+        "diagnostics"
+    );
+    assert!(
+        diagnostics["result"]["content"][0]["text"]
+            .as_str()
+            .expect("diagnostics text should be a string")
+            .contains("leptos.signal-get-in-view")
+    );
+
+    let search_docs = response_by_id(&responses, 5);
+    assert_eq!(search_docs["result"]["isError"], Value::Null);
+    assert_eq!(
+        search_docs["result"]["structuredContent"]["kind"],
+        "search-docs"
+    );
+    assert!(
+        search_docs["result"]["content"][0]["text"]
+            .as_str()
+            .expect("search text should be a string")
+            .contains("* id: axum")
+    );
+
+    let lookup_api = response_by_id(&responses, 6);
+    assert_eq!(lookup_api["result"]["isError"], Value::Null);
+    assert_eq!(
+        lookup_api["result"]["structuredContent"]["kind"],
+        "api-lookup"
+    );
+    assert!(
+        lookup_api["result"]["content"][0]["text"]
+            .as_str()
+            .expect("API lookup text should be a string")
+            .contains("leptos_axum::file_and_error_handler")
+    );
+
+    let recipe = response_by_id(&responses, 7);
+    assert_eq!(recipe["result"]["isError"], Value::Null);
+    assert_eq!(recipe["result"]["structuredContent"]["kind"], "recipe");
+    assert!(
+        recipe["result"]["content"][0]["text"]
+            .as_str()
+            .expect("recipe text should be a string")
+            .contains("Share Axum state with server functions")
+    );
+
+    let resource_read = response_by_id(&responses, 8);
     assert_eq!(
         resource_read["result"]["contents"][0]["uri"],
         "leptos://docs/signals"
@@ -321,7 +402,7 @@ fn stdio_process_calls_tools_reads_resources_gets_prompts_and_surfaces_tool_erro
         "text/markdown"
     );
 
-    let prompt_get = response_by_id(&responses, 4);
+    let prompt_get = response_by_id(&responses, 9);
     assert_eq!(prompt_get["result"]["messages"][0]["role"], "user");
     assert!(
         prompt_get["result"]["messages"][0]["content"]["text"]
@@ -330,13 +411,24 @@ fn stdio_process_calls_tools_reads_resources_gets_prompts_and_surfaces_tool_erro
             .contains("WASM 404")
     );
 
-    let malformed_tool_call = response_by_id(&responses, 5);
+    let malformed_tool_call = response_by_id(&responses, 10);
     assert_eq!(malformed_tool_call["result"]["isError"], true);
     assert!(
         malformed_tool_call["result"]["content"][0]["text"]
             .as_str()
             .expect("tool error text should be a string")
             .contains("missing field `section`")
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Starting Leptos MCP Server"));
+    assert!(
+        !stderr.contains("Leptos Signals"),
+        "stdio logs should not echo successful tool or resource contents"
+    );
+    assert!(
+        !stderr.contains("WASM 404"),
+        "stdio logs should not echo prompt arguments"
     );
 }
 
