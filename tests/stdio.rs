@@ -185,7 +185,7 @@ fn stdio_process_initializes_and_returns_json_responses() {
     assert!(
         initialize["result"]["capabilities"]
             .get("completions")
-            .is_none()
+            .is_some_and(Value::is_object)
     );
     assert!(response_by_id(&responses, 2)["result"]["tools"].is_array());
 }
@@ -297,6 +297,112 @@ fn stdio_process_exposes_tools_resources_templates_and_prompts() {
             .iter()
             .any(|prompt| prompt["name"] == "wire-leptos-axum-ssr")
     );
+}
+
+#[test]
+fn stdio_completion_completes_doc_section_template_and_rejects_unsupported_refs_cleanly() {
+    let output = run_server(&initialized_input(&[
+        r#"{"jsonrpc":"2.0","id":2,"method":"completion/complete","params":{"ref":{"type":"ref/resource","uri":"leptos://docs/{section}"},"argument":{"name":"section","value":"ax"}}}"#,
+        r#"{"jsonrpc":"2.0","id":3,"method":"completion/complete","params":{"ref":{"type":"ref/resource","uri":"leptos://docs/{section}"},"argument":{"name":"unknown","value":"ax"}}}"#,
+    ]));
+
+    assert!(output.status.success());
+    let responses = stdout_json_lines(&output);
+    assert_eq!(responses.len(), 3);
+
+    let completion = response_by_id(&responses, 2);
+    assert_eq!(
+        completion["result"]["completion"]["values"],
+        serde_json::json!(["axum"])
+    );
+    assert_eq!(completion["result"]["completion"]["total"], 1);
+
+    let unsupported = response_by_id(&responses, 3);
+    assert_eq!(unsupported["error"]["code"], -32601);
+    assert!(
+        unsupported["error"]["message"]
+            .as_str()
+            .expect("error message should be a string")
+            .contains("completion/complete is supported only")
+    );
+}
+
+#[test]
+fn stdio_rejects_unknown_tool_argument_fields() {
+    let output = run_server(&initialized_input(&[
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search-docs","arguments":{"query":"signals","extra":true}}}"#,
+    ]));
+
+    assert!(output.status.success());
+    let responses = stdout_json_lines(&output);
+    assert_eq!(responses.len(), 2);
+
+    let response = response_by_id(&responses, 2);
+    assert_eq!(response["result"]["isError"], true);
+    assert!(
+        response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("tool error text should be a string")
+            .contains("unknown field `extra`")
+    );
+}
+
+#[test]
+fn malformed_stdio_frames_return_sanitized_jsonrpc_parse_errors() {
+    let output = run_server("{not json\n");
+
+    assert!(output.status.success());
+    let responses = stdout_json_lines(&output);
+    assert_eq!(responses.len(), 1);
+    assert_eq!(responses[0]["jsonrpc"], "2.0");
+    assert_eq!(responses[0]["id"], Value::Null);
+    assert_eq!(responses[0]["error"]["code"], -32700);
+    assert_eq!(responses[0]["error"]["message"], "Parse error");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Starting Leptos MCP Server"));
+}
+
+#[test]
+fn malformed_stdio_frames_do_not_prevent_later_valid_requests() {
+    let output = run_server(&initialized_input(&[
+        "{not json",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+    ]));
+
+    assert!(output.status.success());
+    let responses = stdout_json_lines(&output);
+    assert_eq!(responses.len(), 3);
+
+    let parse_error = responses
+        .iter()
+        .find(|response| response["error"]["code"] == -32700)
+        .expect("parse error response should be present");
+    assert_eq!(parse_error["id"], Value::Null);
+    assert_eq!(parse_error["error"]["message"], "Parse error");
+
+    assert!(response_by_id(&responses, 1)["result"]["serverInfo"].is_object());
+    assert!(response_by_id(&responses, 2)["result"]["tools"].is_array());
+}
+
+#[test]
+fn invalid_jsonrpc_stdio_frames_return_sanitized_invalid_request_errors() {
+    let output = run_server(&initialized_input(&[
+        r#"{"jsonrpc":"2.0","id":"bad-1","params":{}}"#,
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+    ]));
+
+    assert!(output.status.success());
+    let responses = stdout_json_lines(&output);
+    assert_eq!(responses.len(), 3);
+
+    let invalid_request = responses
+        .iter()
+        .find(|response| response["id"] == "bad-1")
+        .expect("invalid request response should preserve valid request id");
+    assert_eq!(invalid_request["error"]["code"], -32600);
+    assert_eq!(invalid_request["error"]["message"], "Invalid request");
+
+    assert!(response_by_id(&responses, 1)["result"]["serverInfo"].is_object());
+    assert!(response_by_id(&responses, 2)["result"]["tools"].is_array());
 }
 
 #[test]

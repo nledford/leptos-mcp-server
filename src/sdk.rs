@@ -5,6 +5,9 @@
 //! in the existing app facade.
 
 use crate::app::{AppError, LeptosApp, ToolCall};
+use crate::docs;
+#[cfg(feature = "stdio")]
+use crate::stdio_transport::SanitizedStdioTransport;
 use crate::tools::{ToolError, ToolOutput};
 use rust_mcp_sdk::macros::{JsonSchema, mcp_resource_template, mcp_tool};
 use rust_mcp_sdk::schema::schema_utils::CallToolError;
@@ -13,7 +16,8 @@ use rust_mcp_sdk::{
     McpServer,
     mcp_server::ServerHandler,
     schema::{
-        CallToolRequestParams, CallToolResult, ContentBlock, GetPromptRequestParams,
+        CallToolRequestParams, CallToolResult, CompleteRequestParams, CompleteRequestRef,
+        CompleteResult, CompleteResultCompletion, ContentBlock, GetPromptRequestParams,
         GetPromptResult, Implementation, InitializeResult, ListPromptsResult,
         ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
         Prompt as SdkPrompt, PromptArgument as SdkPromptArgument,
@@ -24,10 +28,8 @@ use rust_mcp_sdk::{
     },
 };
 #[cfg(feature = "stdio")]
-use rust_mcp_sdk::{StdioTransport, TransportOptions};
-#[cfg(feature = "stdio")]
 use rust_mcp_sdk::{
-    ToMcpServerHandler,
+    ToMcpServerHandler, TransportOptions,
     error::SdkResult,
     mcp_server::{McpServerOptions, server_runtime},
 };
@@ -35,11 +37,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{future::Future, pin::Pin, sync::Arc};
 
+const MAX_COMPLETION_VALUES: usize = 100;
+
 #[mcp_tool(
     name = "list-sections",
     description = "List all available Leptos documentation sections with canonical ids, aliases, and version metadata"
 )]
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListSectionsTool {}
 
 #[mcp_tool(
@@ -47,6 +52,7 @@ pub struct ListSectionsTool {}
     description = "Get Leptos documentation for a canonical section id or declared alias"
 )]
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct GetDocumentationTool {
     /// Canonical section id or declared alias from list-sections.
     pub section: String,
@@ -57,6 +63,7 @@ pub struct GetDocumentationTool {
     description = "Analyze Leptos code and return structured diagnostics"
 )]
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LeptosDiagnosticsTool {
     /// Leptos code to analyze.
     #[json_schema(max_length = 262144)]
@@ -68,6 +75,7 @@ pub struct LeptosDiagnosticsTool {
     description = "Search Leptos, leptos_axum, and Axum documentation sections by task, API, or failure mode"
 )]
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SearchDocsTool {
     /// Task, API, error, or workflow to search for.
     pub query: String,
@@ -78,6 +86,7 @@ pub struct SearchDocsTool {
     description = "Look up curated Leptos, leptos_axum, or Axum API symbols, macros, aliases, and concepts"
 )]
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LookupApiTool {
     /// Symbol name, macro form, concept, or declared alias.
     pub query: String,
@@ -91,6 +100,7 @@ pub struct LookupApiTool {
     description = "Return a task-oriented recipe for common Leptos + Axum workflows"
 )]
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LeptosAxumRecipeTool {
     /// Recipe id or alias such as ssr-app, server-functions, static-assets,
     /// custom-handler, state-context, database-query-patterns, or wasm-runtime.
@@ -147,7 +157,12 @@ impl LeptosSdkHandler {
         let arguments = params.arguments.unwrap_or_default();
 
         let result = match tool_name.as_str() {
-            "list-sections" => self.app.call_tool(ToolCall::ListSections),
+            "list-sections" => {
+                if let Err(result) = parse_arguments::<ListSectionsTool>(&tool_name, arguments) {
+                    return Ok(result);
+                }
+                self.app.call_tool(ToolCall::ListSections)
+            }
             "get-documentation" => {
                 let tool: GetDocumentationTool = match parse_arguments(&tool_name, arguments) {
                     Ok(tool) => tool,
@@ -202,6 +217,24 @@ impl LeptosSdkHandler {
         Ok(match result {
             Ok(output) => tool_output_to_call_result(output)?,
             Err(error) => tool_domain_error_result(error),
+        })
+    }
+
+    pub fn complete_result(
+        &self,
+        params: CompleteRequestParams,
+    ) -> Result<CompleteResult, RpcError> {
+        let CompleteRequestRef::ResourceTemplateReference(reference) = params.ref_ else {
+            return Err(unsupported_completion());
+        };
+
+        if reference.uri != "leptos://docs/{section}" || params.argument.name != "section" {
+            return Err(unsupported_completion());
+        }
+
+        Ok(CompleteResult {
+            completion: completion_for_doc_sections(&params.argument.value),
+            meta: None,
         })
     }
 
@@ -378,6 +411,18 @@ impl ServerHandler for LeptosSdkHandler {
     {
         Box::pin(async move { self.get_prompt_result(params) })
     }
+
+    fn handle_complete_request<'life0, 'async_trait>(
+        &'life0 self,
+        params: CompleteRequestParams,
+        _runtime: Arc<dyn McpServer>,
+    ) -> Pin<Box<dyn Future<Output = Result<CompleteResult, RpcError>> + Send + 'async_trait>>
+    where
+        'life0: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move { self.complete_result(params) })
+    }
 }
 
 fn resource_descriptor_to_sdk_resource(resource: crate::app::ResourceDescriptor) -> Resource {
@@ -470,6 +515,50 @@ where
     })
 }
 
+fn unsupported_completion() -> RpcError {
+    RpcError::method_not_found().with_message(
+        "completion/complete is supported only for the leptos://docs/{section} resource template section argument"
+            .to_string(),
+    )
+}
+
+fn completion_for_doc_sections(prefix: &str) -> CompleteResultCompletion {
+    completion_from_values(
+        prefix,
+        docs::list_catalog_sections()
+            .iter()
+            .map(|catalog_section| catalog_section.section.id),
+    )
+}
+
+fn completion_from_values<'a>(
+    prefix: &str,
+    values: impl IntoIterator<Item = &'a str>,
+) -> CompleteResultCompletion {
+    let normalized_prefix = crate::api::normalize_query(prefix);
+    let mut matches = values
+        .into_iter()
+        .filter(|value| {
+            normalized_prefix.is_empty()
+                || crate::api::normalize_query(value).starts_with(&normalized_prefix)
+        })
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    matches.sort();
+    matches.dedup();
+
+    let total = matches.len();
+    let has_more = total > MAX_COMPLETION_VALUES;
+    matches.truncate(MAX_COMPLETION_VALUES);
+
+    CompleteResultCompletion {
+        has_more: has_more.then_some(true),
+        total: (total > 0).then_some(total as i64),
+        values: matches,
+    }
+}
+
 fn tool_domain_error_result(error: ToolError) -> CallToolResult {
     match error {
         ToolError::UnknownTool(_) => tool_error_result(CallToolError::from_message("Unknown tool")),
@@ -515,6 +604,7 @@ pub fn server_details() -> InitializeResult {
             website_url: None,
         },
         capabilities: ServerCapabilities {
+            completions: Some(Map::new()),
             tools: Some(ServerCapabilitiesTools { list_changed: None }),
             resources: Some(ServerCapabilitiesResources {
                 list_changed: None,
@@ -538,7 +628,7 @@ pub fn create_handler() -> LeptosSdkHandler {
 
 #[cfg(feature = "stdio")]
 pub async fn start_stdio() -> SdkResult<()> {
-    let transport = StdioTransport::new(TransportOptions::default())?;
+    let transport = SanitizedStdioTransport::new(TransportOptions::default());
     let handler = create_handler().to_mcp_server_handler();
     let server = server_runtime::create_server(McpServerOptions {
         server_details: server_details(),
@@ -581,7 +671,7 @@ mod tests {
         assert!(details.capabilities.tools.is_some());
         assert!(details.capabilities.resources.is_some());
         assert!(details.capabilities.prompts.is_some());
-        assert!(details.capabilities.completions.is_none());
+        assert!(details.capabilities.completions.is_some());
     }
 
     #[test]
@@ -722,6 +812,43 @@ mod tests {
             &result,
             "Invalid arguments for tool 'get-documentation': missing field `section`",
         );
+    }
+
+    #[test]
+    fn sdk_tool_call_rejects_unknown_argument_fields_for_every_tool() {
+        let handler = LeptosSdkHandler::new(LeptosApp::new());
+
+        for (tool_name, arguments) in [
+            (LIST_SECTIONS_TOOL, json!({ "extra": true })),
+            (
+                GET_DOCUMENTATION_TOOL,
+                json!({ "section": "signals", "extra": true }),
+            ),
+            (
+                LEPTOS_DIAGNOSTICS_TOOL,
+                json!({ "code": "view! { <p/> }", "extra": true }),
+            ),
+            (
+                SEARCH_DOCS_TOOL,
+                json!({ "query": "signals", "extra": true }),
+            ),
+            (LOOKUP_API_TOOL, json!({ "query": "view!", "extra": true })),
+            (
+                LEPTOS_AXUM_RECIPE_TOOL,
+                json!({ "recipe": "ssr-app", "extra": true }),
+            ),
+        ] {
+            let result = handler
+                .call_tool_result(call_params(tool_name, arguments))
+                .unwrap_or_else(|error| panic!("{tool_name} should return tool error: {error:?}"));
+
+            assert_eq!(result.is_error, Some(true), "{tool_name} should fail");
+            assert!(
+                text_content(&result).contains("unknown field `extra`"),
+                "{tool_name} should reject unknown fields, got: {}",
+                text_content(&result)
+            );
+        }
     }
 
     #[test]

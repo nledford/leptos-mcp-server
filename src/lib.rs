@@ -11,4 +11,6 @@ pub mod docs;
 pub mod prompts;
 pub mod recipes;
 pub mod sdk;
+#[cfg(feature = "stdio")]
+mod stdio_transport;
 pub mod tools;
