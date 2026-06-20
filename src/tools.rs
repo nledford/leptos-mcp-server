@@ -78,6 +78,7 @@ pub struct SearchDocsOutput {
 pub struct ApiLookupOutput {
     pub query: String,
     pub lookup: ApiLookup,
+    pub documentation_matches: Vec<SectionSearchSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -186,12 +187,14 @@ impl LeptosTools {
         crate_name: Option<&str>,
     ) -> Result<ToolOutput, ToolError> {
         let lookup = api::lookup_api(query, crate_name).map_err(ToolError::ApiLookup)?;
+        let documentation_matches = documentation_matches_for_api_lookup(&lookup);
         let output = ApiLookupOutput {
             query: query.trim().to_string(),
             lookup,
+            documentation_matches,
         };
 
-        let text = render_api_lookup(&output.lookup);
+        let text = render_api_lookup(&output.lookup, &output.documentation_matches);
 
         Ok(ToolOutput {
             text,
@@ -327,7 +330,25 @@ impl ToolError {
     }
 }
 
-fn render_api_lookup(lookup: &ApiLookup) -> String {
+const MAX_API_LOOKUP_DOCUMENTATION_MATCHES: usize = 3;
+
+fn documentation_matches_for_api_lookup(lookup: &ApiLookup) -> Vec<SectionSearchSummary> {
+    if lookup.status != ApiLookupStatus::NotFound {
+        return Vec::new();
+    }
+
+    docs::search_sections(&lookup.query)
+        .map(|matches| {
+            matches
+                .iter()
+                .take(MAX_API_LOOKUP_DOCUMENTATION_MATCHES)
+                .map(section_search_summary)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn render_api_lookup(lookup: &ApiLookup, documentation_matches: &[SectionSearchSummary]) -> String {
     match lookup.status {
         ApiLookupStatus::Found => {
             let primary = lookup.primary.as_ref().expect("found lookup has a primary");
@@ -359,6 +380,15 @@ fn render_api_lookup(lookup: &ApiLookup) -> String {
                         suggestion.item.display_name(),
                         suggestion.item.kind(),
                         suggestion.item.summary()
+                    ));
+                }
+            }
+            if !documentation_matches.is_empty() {
+                text.push_str("\nRelevant documentation sections:\n");
+                for match_ in documentation_matches {
+                    text.push_str(&format!(
+                        "* id: {}, score: {}, why: {}\n",
+                        match_.section.id, match_.score, match_.why
                     ));
                 }
             }

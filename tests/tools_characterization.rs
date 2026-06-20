@@ -213,6 +213,24 @@ fn lookup_api_characterizes_symbol_text_structured_output_and_errors() {
     assert_eq!(api.lookup.status, ApiLookupStatus::NotFound);
     assert!(!api.lookup.suggestions.is_empty());
 
+    let documented_but_uncurated = tools
+        .lookup_api("Transition", None)
+        .expect("uncurated API query should still search embedded docs");
+    assert!(
+        documented_but_uncurated
+            .text
+            .contains("Relevant documentation sections")
+    );
+    let StructuredToolOutput::ApiLookup(api) = documented_but_uncurated.structured else {
+        panic!("expected lookup-api structured variant");
+    };
+    assert_eq!(api.lookup.status, ApiLookupStatus::NotFound);
+    assert!(
+        api.documentation_matches
+            .iter()
+            .any(|match_| match_.section.id == "suspense")
+    );
+
     let ambiguous = tools
         .lookup_api("extractor", None)
         .expect("ambiguous API lookup should return structured matches");
