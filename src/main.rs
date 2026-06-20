@@ -102,9 +102,7 @@ fn parse_transport_selection(
     mut env: impl FnMut(&str) -> Result<String, std::env::VarError>,
 ) -> Result<CliAction, String> {
     let mut transport = env(TRANSPORT_ENV).ok();
-    let mut host = env(HOST_ENV)
-        .ok()
-        .unwrap_or_else(|| DEFAULT_HOST.to_string());
+    let mut host = env(HOST_ENV).ok();
     let mut port = env(PORT_ENV).ok();
     let mut args = args.into_iter();
 
@@ -115,7 +113,7 @@ fn parse_transport_selection(
                 transport = Some(next_arg(&mut args, "--transport")?);
             }
             "--host" => {
-                host = next_arg(&mut args, "--host")?;
+                host = Some(next_arg(&mut args, "--host")?);
             }
             "--port" => {
                 port = Some(next_arg(&mut args, "--port")?);
@@ -124,7 +122,7 @@ fn parse_transport_selection(
                 transport = Some(value["--transport=".len()..].to_string());
             }
             value if value.starts_with("--host=") => {
-                host = value["--host=".len()..].to_string();
+                host = Some(value["--host=".len()..].to_string());
             }
             value if value.starts_with("--port=") => {
                 port = Some(value["--port=".len()..].to_string());
@@ -140,15 +138,21 @@ fn parse_transport_selection(
     let transport = transport.unwrap_or_else(|| "stdio".to_string());
     let selection = match transport.as_str() {
         "stdio" => {
-            if host != DEFAULT_HOST || port.is_some() {
+            if host.is_some() || port.is_some() {
                 return Err(format!(
                     "--host/--port and {HOST_ENV}/{PORT_ENV} are only valid with network transports; stdio is the default transport"
                 ));
             }
             TransportSelection::Stdio
         }
-        "streamable-http" | "http" => TransportSelection::StreamableHttp { host, port },
-        "sse" => TransportSelection::Sse { host, port },
+        "streamable-http" | "http" => TransportSelection::StreamableHttp {
+            host: host.unwrap_or_else(|| DEFAULT_HOST.to_string()),
+            port,
+        },
+        "sse" => TransportSelection::Sse {
+            host: host.unwrap_or_else(|| DEFAULT_HOST.to_string()),
+            port,
+        },
         _ => {
             return Err(format!(
                 "unsupported transport '{transport}'. Supported transport: stdio. Deferred network transports: streamable-http, sse."
@@ -193,6 +197,27 @@ mod tests {
             parse_transport_selection(["--transport".into(), "stdio".into()], no_env),
             Ok(CliAction::Run(TransportSelection::Stdio))
         );
+    }
+
+    #[test]
+    fn rejects_stdio_with_explicit_host_even_when_it_matches_default() {
+        let error = parse_transport_selection(["--host=127.0.0.1".into()], no_env)
+            .expect_err("host configuration should not be accepted for stdio");
+
+        assert!(error.contains("--host/--port"));
+        assert!(error.contains("stdio"));
+    }
+
+    #[test]
+    fn rejects_stdio_with_host_env_even_when_it_matches_default() {
+        let error = parse_transport_selection([], |name| match name {
+            HOST_ENV => Ok(DEFAULT_HOST.to_string()),
+            _ => Err(std::env::VarError::NotPresent),
+        })
+        .expect_err("host environment should not be accepted for stdio");
+
+        assert!(error.contains(HOST_ENV));
+        assert!(error.contains("stdio"));
     }
 
     #[test]

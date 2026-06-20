@@ -105,6 +105,21 @@ fn assert_network_transport_deferred(transport: &str) {
     assert_no_public_network_or_permissive_security_claims(&stderr);
 }
 
+fn assert_stdio_network_config_rejected(output: Output) {
+    assert!(
+        !output.status.success(),
+        "stdio network-only configuration should fail closed"
+    );
+    assert!(output.stdout.is_empty());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--host/--port"));
+    assert!(stderr.contains("stdio"));
+    assert!(!stderr.contains("Starting Leptos MCP Server"));
+    assert_no_internal_or_sensitive_diagnostics("stdio config rejection stderr", &stderr, &[]);
+    assert_no_public_network_or_permissive_security_claims(&stderr);
+}
+
 #[test]
 fn streamable_http_is_deferred_without_starting_listener_or_echoing_inputs() {
     assert_network_transport_deferred("streamable-http");
@@ -178,6 +193,19 @@ fn env_selected_network_transport_fails_closed_before_startup() {
         ],
     );
     assert_no_public_network_or_permissive_security_claims(&stderr);
+}
+
+#[test]
+fn explicit_host_with_stdio_fails_closed_before_startup() {
+    assert_stdio_network_config_rejected(run_server(&["--host=127.0.0.1"]));
+}
+
+#[test]
+fn host_env_with_default_stdio_fails_closed_before_startup() {
+    assert_stdio_network_config_rejected(run_server_with_env(
+        &[],
+        &[("LEPTOS_MCP_HOST", "127.0.0.1")],
+    ));
 }
 
 #[test]
