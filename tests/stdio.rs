@@ -106,7 +106,7 @@ fn stdio_tool_resource_and_prompt_failures_do_not_echo_sensitive_inputs() {
             r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"get-documentation","arguments":{{"section":"{DOC_SECRET}"}}}}}}"#
         ),
         format!(
-            r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"lookup-api","arguments":{{"query":"{API_SECRET}","crate":"{CRATE_SECRET}"}}}}}}"#
+            r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"lookup-api","arguments":{{"query":{{"secret":"{API_SECRET}"}},"crate":"{CRATE_SECRET}"}}}}}}"#
         ),
         format!(
             r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"leptos-axum-recipe","arguments":{{"recipe":"{RECIPE_SECRET}"}}}}}}"#

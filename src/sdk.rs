@@ -75,11 +75,11 @@ pub struct SearchDocsTool {
 
 #[mcp_tool(
     name = "lookup-api",
-    description = "Look up a curated Leptos, leptos_axum, or Axum public API symbol"
+    description = "Look up curated Leptos, leptos_axum, or Axum API symbols, macros, aliases, and concepts"
 )]
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct LookupApiTool {
-    /// Symbol name or declared alias.
+    /// Symbol name, macro form, concept, or declared alias.
     pub query: String,
     /// Optional crate filter: leptos, leptos_axum, or axum.
     #[serde(rename = "crate")]
@@ -753,7 +753,7 @@ mod tests {
     }
 
     #[test]
-    fn sdk_tool_call_returns_error_payload_for_missing_api_symbol() {
+    fn sdk_tool_call_returns_structured_not_found_for_missing_api_symbol() {
         let handler = LeptosSdkHandler::new(LeptosApp::new());
 
         let result = handler
@@ -761,9 +761,21 @@ mod tests {
                 LOOKUP_API_TOOL,
                 json!({ "query": "not_an_api_symbol" }),
             ))
-            .expect("missing API symbol should be represented as a tool error payload");
+            .expect("missing API symbol should return structured suggestions");
 
-        assert_tool_error(&result, "Unknown API symbol");
+        assert_eq!(result.is_error, None);
+        assert!(text_content(&result).contains("No curated API entry matched"));
+        let structured = result
+            .structured_content
+            .expect("not-found lookup should include structured content");
+        assert_eq!(structured["kind"], "api-lookup");
+        assert_eq!(structured["lookup"]["status"], "not-found");
+        assert!(
+            !structured["lookup"]["suggestions"]
+                .as_array()
+                .expect("suggestions should be an array")
+                .is_empty()
+        );
     }
 
     #[test]

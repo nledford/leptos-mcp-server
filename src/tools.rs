@@ -1,6 +1,6 @@
 //! MCP tool domain handlers.
 
-use crate::api::{self, ApiLookupError, ApiSymbol};
+use crate::api::{self, ApiLookup, ApiLookupError, ApiLookupItem, ApiLookupStatus, ApiMatchKind};
 use crate::diagnostics::{DiagnosticsOutput, LeptosDiagnostics, render_diagnostics};
 use crate::docs::{
     self, CatalogSection, CrateVersion, SectionLookupError, SectionSearchMatch,
@@ -77,7 +77,7 @@ pub struct SearchDocsOutput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ApiLookupOutput {
     pub query: String,
-    pub symbol: ApiSymbol,
+    pub lookup: ApiLookup,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -185,17 +185,16 @@ impl LeptosTools {
         query: &str,
         crate_name: Option<&str>,
     ) -> Result<ToolOutput, ToolError> {
-        let symbol = api::lookup_symbol(query, crate_name).map_err(ToolError::ApiLookup)?;
+        let lookup = api::lookup_api(query, crate_name).map_err(ToolError::ApiLookup)?;
         let output = ApiLookupOutput {
             query: query.trim().to_string(),
-            symbol: *symbol,
+            lookup,
         };
 
+        let text = render_api_lookup(&output.lookup);
+
         Ok(ToolOutput {
-            text: format!(
-                "{} ({})\n{}\n{}",
-                symbol.name, symbol.crate_name, symbol.summary, symbol.url
-            ),
+            text,
             structured: StructuredToolOutput::ApiLookup(output),
         })
     }
@@ -307,10 +306,10 @@ impl ToolError {
                 )
             }
             ToolError::ApiLookup(ApiLookupError::Empty) => {
-                "query must be a non-empty API symbol or alias".to_string()
+                "query must be a non-empty API symbol, macro, concept, or alias".to_string()
             }
             ToolError::ApiLookup(ApiLookupError::Unknown { .. }) => {
-                "Unknown API symbol".to_string()
+                "Unknown API symbol. Use lookup-api for structured suggestions.".to_string()
             }
             ToolError::ApiLookup(ApiLookupError::Ambiguous { matches, .. }) => {
                 format!(
@@ -325,6 +324,80 @@ impl ToolError {
                 "Unknown Leptos Axum recipe".to_string()
             }
         }
+    }
+}
+
+fn render_api_lookup(lookup: &ApiLookup) -> String {
+    match lookup.status {
+        ApiLookupStatus::Found => {
+            let primary = lookup.primary.as_ref().expect("found lookup has a primary");
+            render_lookup_item(primary.item)
+        }
+        ApiLookupStatus::Ambiguous => {
+            let mut text = format!("Multiple curated API entries matched '{}'.\n", lookup.query);
+            for match_ in &lookup.matches {
+                text.push_str(&format!(
+                    "* {} ({}, {}) - {}\n",
+                    match_.item.display_name(),
+                    match_.item.kind(),
+                    match_kind_label(match_.match_kind),
+                    match_.item.summary()
+                ));
+            }
+            for guidance in &lookup.guidance {
+                text.push_str(&format!("\n{guidance}"));
+            }
+            text
+        }
+        ApiLookupStatus::NotFound => {
+            let mut text = format!("No curated API entry matched '{}'.", lookup.query);
+            if !lookup.suggestions.is_empty() {
+                text.push_str("\nTry one of these curated entries:\n");
+                for suggestion in &lookup.suggestions {
+                    text.push_str(&format!(
+                        "* {} ({}) - {}\n",
+                        suggestion.item.display_name(),
+                        suggestion.item.kind(),
+                        suggestion.item.summary()
+                    ));
+                }
+            }
+            for guidance in &lookup.guidance {
+                text.push_str(&format!("\n{guidance}"));
+            }
+            text
+        }
+    }
+}
+
+fn render_lookup_item(item: ApiLookupItem) -> String {
+    match item {
+        ApiLookupItem::Symbol(symbol) => format!(
+            "{} ({})\n{}\n{}",
+            symbol.name, symbol.crate_name, symbol.summary, symbol.url
+        ),
+        ApiLookupItem::Concept(concept) => format!(
+            "{} ({})\n{}\nRelated symbols: {}\nRelated sections: {}",
+            concept.title,
+            concept.crate_names.join(", "),
+            concept.summary,
+            concept.related_symbols.join(", "),
+            concept.related_sections.join(", ")
+        ),
+    }
+}
+
+fn match_kind_label(match_kind: ApiMatchKind) -> &'static str {
+    match match_kind {
+        ApiMatchKind::ExactSymbol => "exact-symbol",
+        ApiMatchKind::ExactAlias => "exact-alias",
+        ApiMatchKind::Macro => "macro",
+        ApiMatchKind::AttributeMacro => "attribute-macro",
+        ApiMatchKind::FunctionCall => "function-call",
+        ApiMatchKind::Concept => "concept",
+        ApiMatchKind::Prefix => "prefix",
+        ApiMatchKind::Token => "token",
+        ApiMatchKind::Summary => "summary",
     }
 }
 
@@ -386,24 +459,80 @@ mod tests {
 
         match output.structured {
             StructuredToolOutput::ApiLookup(api) => {
-                assert_eq!(api.symbol.name, "leptos_axum::file_and_error_handler");
-                assert_eq!(api.symbol.version, "0.8.9");
+                assert_eq!(api.lookup.status, ApiLookupStatus::Found);
+                let symbol = api
+                    .lookup
+                    .primary_symbol()
+                    .expect("lookup should resolve to a symbol");
+                assert_eq!(symbol.name, "leptos_axum::file_and_error_handler");
+                assert_eq!(symbol.version, "0.8.9");
             }
             _ => panic!("expected API lookup output"),
         }
     }
 
     #[test]
-    fn lookup_api_renders_ambiguous_symbol_errors() {
+    fn lookup_api_renders_structured_ambiguous_matches() {
         let tools = LeptosTools::new();
-        let error = tools
+        let output = tools
             .lookup_api("extractor", None)
-            .expect_err("ambiguous API query must fail");
+            .expect("ambiguous API query should return structured matches");
 
-        assert_eq!(
-            error.message(),
-            "Ambiguous API symbol. Matching symbols: leptos_axum::extract, leptos_axum::extract_with_state, axum::Json"
-        );
+        assert!(output.text.contains("Multiple curated API entries matched"));
+        match output.structured {
+            StructuredToolOutput::ApiLookup(api) => {
+                assert_eq!(api.lookup.status, ApiLookupStatus::Ambiguous);
+                assert!(api.lookup.primary.is_none());
+                assert_eq!(
+                    api.lookup
+                        .matches
+                        .iter()
+                        .map(|match_| match_.item.identity())
+                        .collect::<Vec<_>>(),
+                    vec![
+                        "axum::extract::Path",
+                        "axum::extract::Query",
+                        "axum::extract::State",
+                        "axum::Json",
+                        "leptos_axum::extract",
+                        "leptos_axum::extract_with_state"
+                    ]
+                );
+            }
+            _ => panic!("expected API lookup output"),
+        }
+    }
+
+    #[test]
+    fn lookup_api_returns_concepts_and_not_found_suggestions() {
+        let tools = LeptosTools::new();
+        let component = tools
+            .lookup_api("component", None)
+            .expect("component concept should resolve");
+
+        assert!(component.text.contains("Leptos components"));
+        match component.structured {
+            StructuredToolOutput::ApiLookup(api) => {
+                assert_eq!(api.lookup.status, ApiLookupStatus::Found);
+                assert_eq!(
+                    api.lookup.primary_concept().map(|concept| concept.id),
+                    Some("leptos-components")
+                );
+            }
+            _ => panic!("expected API lookup output"),
+        }
+
+        let missing = tools
+            .lookup_api("not-a-known-api", Some("leptos"))
+            .expect("unknown API query should return suggestions");
+        assert!(missing.text.contains("No curated API entry matched"));
+        match missing.structured {
+            StructuredToolOutput::ApiLookup(api) => {
+                assert_eq!(api.lookup.status, ApiLookupStatus::NotFound);
+                assert!(!api.lookup.suggestions.is_empty());
+            }
+            _ => panic!("expected API lookup output"),
+        }
     }
 
     #[test]

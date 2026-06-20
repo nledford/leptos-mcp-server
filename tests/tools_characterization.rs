@@ -1,3 +1,4 @@
+use leptos_mcp_server::api::{ApiLookupItem, ApiLookupStatus, ApiMatchKind};
 use leptos_mcp_server::tools::{
     GET_DOCUMENTATION_TOOL, LEPTOS_AXUM_RECIPE_TOOL, LEPTOS_DIAGNOSTICS_TOOL, LIST_SECTIONS_TOOL,
     LOOKUP_API_TOOL, LeptosTools, MAX_DIAGNOSTIC_CODE_BYTES, SEARCH_DOCS_TOOL,
@@ -179,11 +180,17 @@ fn lookup_api_characterizes_symbol_text_structured_output_and_errors() {
         panic!("expected lookup-api structured variant");
     };
     assert_eq!(api.query, "file_and_error_handler");
-    assert_eq!(api.symbol.name, "leptos_axum::file_and_error_handler");
-    assert_eq!(api.symbol.kind, "function");
-    assert_eq!(api.symbol.version, "0.8.9");
+    assert_eq!(api.lookup.query, "file_and_error_handler");
+    assert_eq!(api.lookup.status, ApiLookupStatus::Found);
+    let symbol = api
+        .lookup
+        .primary_symbol()
+        .expect("lookup should resolve to a symbol");
+    assert_eq!(symbol.name, "leptos_axum::file_and_error_handler");
+    assert_eq!(symbol.kind, "function");
+    assert_eq!(symbol.version, "0.8.9");
     assert!(
-        api.symbol
+        symbol
             .related_sections
             .contains(&"ssr-hydration-deployment")
     );
@@ -193,22 +200,105 @@ fn lookup_api_characterizes_symbol_text_structured_output_and_errors() {
             .lookup_api(" ", None)
             .expect_err("blank API lookup should be rejected")
             .message(),
-        "query must be a non-empty API symbol or alias"
+        "query must be a non-empty API symbol, macro, concept, or alias"
     );
+
+    let unknown = tools
+        .lookup_api("nope", Some("leptos"))
+        .expect("unknown API lookup should return suggestions");
+    assert!(unknown.text.contains("No curated API entry matched"));
+    let StructuredToolOutput::ApiLookup(api) = unknown.structured else {
+        panic!("expected lookup-api structured variant");
+    };
+    assert_eq!(api.lookup.status, ApiLookupStatus::NotFound);
+    assert!(!api.lookup.suggestions.is_empty());
+
+    let ambiguous = tools
+        .lookup_api("extractor", None)
+        .expect("ambiguous API lookup should return structured matches");
+    assert!(
+        ambiguous
+            .text
+            .contains("Multiple curated API entries matched")
+    );
+    let StructuredToolOutput::ApiLookup(api) = ambiguous.structured else {
+        panic!("expected lookup-api structured variant");
+    };
+    assert_eq!(api.lookup.status, ApiLookupStatus::Ambiguous);
     assert_eq!(
-        tools
-            .lookup_api("nope", Some("leptos"))
-            .expect_err("unknown API lookup should be rejected")
-            .message(),
-        "Unknown API symbol"
+        api.lookup
+            .matches
+            .iter()
+            .map(|match_| match_.item.identity())
+            .collect::<Vec<_>>(),
+        vec![
+            "axum::extract::Path",
+            "axum::extract::Query",
+            "axum::extract::State",
+            "axum::Json",
+            "leptos_axum::extract",
+            "leptos_axum::extract_with_state"
+        ]
     );
+}
+
+#[test]
+fn lookup_api_characterizes_concept_macro_alias_and_trait_queries() {
+    let tools = LeptosTools::new();
+
+    let concept = tools
+        .lookup_api("component", None)
+        .expect("component concept should resolve");
+    let StructuredToolOutput::ApiLookup(api) = concept.structured else {
+        panic!("expected lookup-api structured variant");
+    };
+    assert_eq!(api.lookup.status, ApiLookupStatus::Found);
     assert_eq!(
-        tools
-            .lookup_api("extractor", None)
-            .expect_err("ambiguous API lookup should be rejected")
-            .message(),
-        "Ambiguous API symbol. Matching symbols: leptos_axum::extract, leptos_axum::extract_with_state, axum::Json"
+        api.lookup.primary_concept().map(|concept| concept.id),
+        Some("leptos-components")
     );
+
+    let signal = tools
+        .lookup_api("SIGNAL", Some("leptos"))
+        .expect("signal concept should resolve despite case");
+    let StructuredToolOutput::ApiLookup(api) = signal.structured else {
+        panic!("expected lookup-api structured variant");
+    };
+    assert_eq!(
+        api.lookup.primary_concept().map(|concept| concept.id),
+        Some("leptos-signals")
+    );
+
+    let view = tools
+        .lookup_api("view!", None)
+        .expect("view macro should resolve");
+    let StructuredToolOutput::ApiLookup(api) = view.structured else {
+        panic!("expected lookup-api structured variant");
+    };
+    let primary = api.lookup.primary.as_ref().expect("primary match");
+    assert_eq!(primary.match_kind, ApiMatchKind::Macro);
+    assert_eq!(primary.item.symbol_name(), Some("leptos::prelude::view"));
+
+    let into_view = tools
+        .lookup_api("into view", None)
+        .expect("IntoView alias should resolve");
+    let StructuredToolOutput::ApiLookup(api) = into_view.structured else {
+        panic!("expected lookup-api structured variant");
+    };
+    assert_eq!(
+        api.lookup.primary_symbol().map(|symbol| symbol.name),
+        Some("leptos::prelude::IntoView")
+    );
+
+    let explicit_component_macro = tools
+        .lookup_api("#[component]", None)
+        .expect("attribute macro form should resolve");
+    let StructuredToolOutput::ApiLookup(api) = explicit_component_macro.structured else {
+        panic!("expected lookup-api structured variant");
+    };
+    let primary = api.lookup.primary.as_ref().expect("primary match");
+    assert_eq!(primary.match_kind, ApiMatchKind::AttributeMacro);
+    assert!(matches!(primary.item, ApiLookupItem::Symbol(_)));
 }
 
 #[test]

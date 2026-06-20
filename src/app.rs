@@ -130,7 +130,7 @@ impl LeptosApp {
                 },
                 ToolDescriptor {
                     name: LOOKUP_API_TOOL,
-                    description: "Look up a curated Leptos, leptos_axum, or Axum public API symbol",
+                    description: "Look up curated Leptos, leptos_axum, or Axum API symbols, macros, aliases, and concepts",
                 },
                 ToolDescriptor {
                     name: LEPTOS_AXUM_RECIPE_TOOL,
