@@ -210,7 +210,16 @@ Output shape:
     "matches": [{ "...": "same shape as primary" }],
     "suggestions": [],
     "guidance": ["..."]
-  }
+  },
+  "documentation_matches": [
+    {
+      "section": { "id": "suspense", "title": "Suspense and Transition" },
+      "score": 42,
+      "matched_fields": ["content"],
+      "why": "...",
+      "next_actions": ["..."]
+    }
+  ]
 }
 ```
 
@@ -220,8 +229,9 @@ Output shape:
   selected. Use `lookup.primary`.
 - `ambiguous` — multiple entries matched. Use `lookup.matches` and refine with a
   fully qualified symbol, macro/attribute form, or `crate` filter.
-- `not-found` — no curated entry matched. Use `lookup.suggestions` and
-  `lookup.guidance`; this is a successful tool result, not an SDK tool error.
+- `not-found` — no curated entry matched. Use `lookup.suggestions`,
+  `lookup.guidance`, and `documentation_matches`; this is a successful tool
+  result, not an SDK tool error.
 
 `item.entry_type` is either `symbol` or `concept`. Symbol entries include
 `name`, `crate_name`, `version`, `kind`, `url`, `summary`, `aliases`,
@@ -278,7 +288,9 @@ Common errors:
 
 Unknown and ambiguous non-empty queries are represented in
 `structuredContent.lookup.status` as `not-found` or `ambiguous`; they do not
-return SDK tool errors.
+return SDK tool errors. For `not-found` queries, `documentation_matches` contains
+up to three embedded documentation search results for the query, so agents can
+continue from local docs even when the exact API is not in the curated catalog.
 
 ### `leptos-axum-recipe`
 

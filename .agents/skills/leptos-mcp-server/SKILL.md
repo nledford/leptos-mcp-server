@@ -85,8 +85,9 @@ Use [tools.md](references/tools.md) for exact names, schemas, output shapes, res
 - `lookup-api` returns successful structured results for exact matches,
   concept matches, ambiguous matches, and unknown queries. Check
   `structuredContent.lookup.status`, which is one of `found`, `ambiguous`, or
-  `not-found`. Unknown queries include `suggestions` and `guidance` rather than
-  a bare `Unknown API symbol` tool error. A blank query is still a tool error.
+  `not-found`. Unknown queries include `suggestions`, `guidance`, and, when the
+  term appears in embedded docs, `documentation_matches` rather than a bare
+  `Unknown API symbol` tool error. A blank query is still a tool error.
 - Prompt calls enforce required arguments; missing or blank required values and unknown prompt arguments return prompt argument errors.
 
 ## Security and privacy considerations

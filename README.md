@@ -106,11 +106,13 @@ Successful lookup responses include `structuredContent.kind = "api-lookup"` and
 - `found`: one symbol or concept matched; inspect `lookup.primary`.
 - `ambiguous`: multiple entries matched; inspect `lookup.matches` and refine
   with a fully qualified symbol, macro/attribute form, or `crate` filter.
-- `not-found`: no curated entry matched; inspect `lookup.suggestions` and
-  `lookup.guidance`.
+- `not-found`: no curated entry matched; inspect `lookup.suggestions`,
+  `lookup.guidance`, and `documentation_matches`.
 
 Only blank lookup queries are tool errors. Unknown non-empty queries return
-structured `not-found` results instead of a bare `Unknown API symbol` error.
+structured `not-found` results instead of a bare `Unknown API symbol` error. If
+the term appears in the embedded documentation but not in the curated API
+catalog, `documentation_matches` points to the most relevant sections.
 
 ## Snippet Classification Policy
 

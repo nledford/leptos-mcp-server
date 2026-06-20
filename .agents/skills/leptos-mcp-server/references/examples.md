@@ -69,9 +69,10 @@ Prompt example:
    `IntoView` when you need the return trait.
 3. Call `lookup-api` with `view!` when checking template syntax or reactive view
    behavior.
-4. If `lookup.status` is `ambiguous` or `not-found`, inspect `matches`,
-   `suggestions`, and `guidance`; refine with a fully qualified symbol, macro
-   form, or `crate` filter.
+4. If `lookup.status` is `ambiguous`, inspect `matches` and refine with a fully
+   qualified symbol, macro form, or `crate` filter. If it is `not-found`,
+   inspect `suggestions`, `guidance`, and `documentation_matches`; use the
+   matched docs before falling back to live upstream references.
 
 ## Workflow: review SQL access in Leptos/Axum
 
