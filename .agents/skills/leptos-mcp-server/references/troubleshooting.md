@@ -26,7 +26,10 @@
 - Tool arguments are deserialized with unknown fields denied. Remove extra fields.
 - `get-documentation` does not perform arbitrary substring matching. Call `list-sections` or `search-docs`, then pass a canonical id or declared alias.
 - `leptos-diagnostics` requires non-empty `code` and rejects inputs larger than 262144 bytes.
-- `lookup-api` only covers the curated symbols listed in [tools.md](tools.md), not every symbol in the crates.
+- `lookup-api` only covers the curated symbols and concepts listed in
+  [tools.md](tools.md), not every symbol in the crates. Non-empty unknown
+  queries return `lookup.status: not-found` with suggestions and guidance rather
+  than a tool error; blank queries are still rejected.
 
 ## Prompt pitfalls
 

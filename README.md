@@ -13,7 +13,7 @@ as tools/resources, and provides workflow prompts for common Leptos + Axum work.
 | `list-sections`       | List all available documentation sections with task metadata      |
 | `get-documentation`   | Retrieve documentation by canonical section id or declared alias  |
 | `search-docs`         | Search documentation by task, API, or failure mode                |
-| `lookup-api`          | Look up curated Leptos, leptos_axum, or Axum public API symbols   |
+| `lookup-api`          | Look up curated API symbols, macros, aliases, and concepts         |
 | `leptos-axum-recipe`  | Return task recipes for common Leptos + Axum workflows            |
 | `leptos-diagnostics`  | Analyze Leptos code and return structured diagnostics             |
 
@@ -56,8 +56,9 @@ Leptos/Axum applications.
 - `src/tools.rs` contains the tool handlers and response models.
 - `src/docs.rs` indexes the embedded Markdown documentation in `docs/` and maps
   it to `leptos://docs/<section>` resources.
-- `src/api.rs` contains a curated API catalog for Leptos, `leptos_axum`, and
-  Axum symbols.
+- `src/api.rs` contains the curated API catalog, concept catalog, exact-term
+  lookup index, and fuzzy/suggestion logic for Leptos, `leptos_axum`, and Axum
+  lookup entries.
 - `src/diagnostics.rs` provides heuristic Leptos/Axum diagnostics.
 - `src/recipes.rs` and `src/prompts.rs` provide workflow recipes and MCP prompt
   templates.
@@ -83,6 +84,33 @@ Leptos/Axum applications.
 | **Leptos Axum**      | `LeptosRoutes`, `handle_server_fns`, extractors, database context  |
 | **Axum 0.8.9**       | `Router`, `State`, extractors, middleware, database pools          |
 | **SSR/Hydration**    | Feature flags, static files, deployment, hydration debugging       |
+
+## API Lookup Behavior
+
+`lookup-api` accepts exact public API symbols, aliases, Rust macro/attribute
+forms, type/trait names, and curated Leptos concepts.
+
+Useful examples:
+
+- Exact symbols: `leptos::prelude::Resource`,
+  `leptos::server_fn::ServerFnError`, `leptos_axum::LeptosRoutes`,
+  `axum::Router`
+- Aliases: `Resource::new`, `server fn error`, `route_layer`
+- Macro/attribute/function forms: `view!`, `#[component]`, `signal()`
+- Concepts: `component`, `signal`
+- Type/trait names: `IntoView`, `IntoResponse`
+
+Successful lookup responses include `structuredContent.kind = "api-lookup"` and
+`structuredContent.lookup.status`:
+
+- `found`: one symbol or concept matched; inspect `lookup.primary`.
+- `ambiguous`: multiple entries matched; inspect `lookup.matches` and refine
+  with a fully qualified symbol, macro/attribute form, or `crate` filter.
+- `not-found`: no curated entry matched; inspect `lookup.suggestions` and
+  `lookup.guidance`.
+
+Only blank lookup queries are tool errors. Unknown non-empty queries return
+structured `not-found` results instead of a bare `Unknown API symbol` error.
 
 ## Snippet Classification Policy
 
@@ -214,11 +242,12 @@ can be configured and verified.
   running heuristic analysis. This is the remaining project-specific tool input
   size guard.
 - Embedded documentation and API/recipe catalogs are compiled into the binary as
-  static strings. `resources/read` and documentation tools allocate a response
-  string for the selected section and do not stream or paginate section content;
-  resource descriptors currently advertise no `size` field. The checked-in
-  corpus is intentionally small, but adding substantially larger docs/resources
-  increases binary size and per-request response allocation.
+  static strings. API lookup builds its exact-term index lazily once per process
+  and scans the small curated catalog for fuzzy/prefix suggestions.
+  `resources/read` and documentation tools allocate a response string for the
+  selected section and do not stream or paginate section content; resource descriptors currently advertise no `size` field.
+  The checked-in corpus is intentionally small, but adding substantially larger
+  docs/resources increases binary size and per-request response allocation.
 - No project-specific wall-clock handler timeout is configured for stdio tool,
   resource, or prompt calls. Network read/request/handler timeouts remain absent
   because network transports are disabled.

@@ -147,7 +147,11 @@ Failure note: an empty query currently returns the section-empty message because
 
 ### `lookup-api`
 
-Purpose: look up curated public API symbols for Leptos `0.8.19`, `leptos_axum` `0.8.9`, and Axum `0.8.9`.
+Purpose: look up curated public API symbols, macro/attribute forms, aliases, and
+concept entries for Leptos `0.8.19`, `leptos_axum` `0.8.9`, and Axum `0.8.9`.
+Use it for exact symbols such as `leptos::prelude::Resource`, macro forms such
+as `view!`, attribute forms such as `#[component]`, trait/type names such as
+`IntoView`, and broad concepts such as `component` or `signal`.
 
 Input schema:
 
@@ -159,12 +163,11 @@ Input schema:
   "properties": {
     "query": {
       "type": "string",
-      "description": "Symbol name or declared alias"
+      "description": "Symbol name, macro form, concept, or declared alias"
     },
     "crate": {
       "type": "string",
-      "description": "Optional crate filter: leptos, leptos_axum, or axum",
-      "enum": ["leptos", "leptos_axum", "axum"]
+      "description": "Optional crate filter: leptos, leptos_axum, or axum"
     }
   }
 }
@@ -175,23 +178,65 @@ Output shape:
 ```json
 {
   "kind": "api-lookup",
-  "query": "ResponseOptions",
-  "symbol": {
-    "name": "leptos_axum::ResponseOptions",
-    "crate_name": "leptos_axum",
-    "version": "0.8.9",
-    "kind": "struct",
-    "url": "https://docs.rs/...",
-    "summary": "...",
-    "aliases": ["ResponseOptions", "set_status", "headers", "cookies"],
-    "related_sections": ["leptos-axum", "error-handling"],
-    "snippet": "..."
+  "query": "component",
+  "lookup": {
+    "query": "component",
+    "normalized_query": "component",
+    "crate_filter": null,
+    "status": "found",
+    "primary": {
+      "match_kind": "concept",
+      "score": 980,
+      "matched": "component",
+      "item": {
+        "entry_type": "concept",
+        "entry": {
+          "id": "leptos-components",
+          "title": "Leptos components",
+          "crate_names": ["leptos"],
+          "kind": "concept",
+          "summary": "...",
+          "aliases": ["component", "components", "props", "children"],
+          "related_sections": ["components", "views"],
+          "related_symbols": [
+            "leptos::component",
+            "leptos::prelude::IntoView",
+            "leptos::prelude::view"
+          ],
+          "snippet": "..."
+        }
+      }
+    },
+    "matches": [{ "...": "same shape as primary" }],
+    "suggestions": [],
+    "guidance": ["..."]
   }
 }
 ```
 
+`lookup.status` values:
+
+- `found` — one exact, alias, macro, concept, prefix, token, or summary match was
+  selected. Use `lookup.primary`.
+- `ambiguous` — multiple entries matched. Use `lookup.matches` and refine with a
+  fully qualified symbol, macro/attribute form, or `crate` filter.
+- `not-found` — no curated entry matched. Use `lookup.suggestions` and
+  `lookup.guidance`; this is a successful tool result, not an SDK tool error.
+
+`item.entry_type` is either `symbol` or `concept`. Symbol entries include
+`name`, `crate_name`, `version`, `kind`, `url`, `summary`, `aliases`,
+`related_sections`, `snippet`, and `snippet_classification`. Concept entries
+include `id`, `title`, `crate_names`, `version_scope`, `kind`, `summary`,
+`aliases`, `related_sections`, `related_symbols`, and `snippet`.
+
 Curated symbols:
 
+- `leptos::component`
+- `leptos::prelude::view`
+- `leptos::prelude::IntoView`
+- `leptos::prelude::signal`
+- `leptos::prelude::RwSignal`
+- `leptos::prelude::Memo`
 - `leptos::prelude::Resource`
 - `leptos::server`
 - `leptos::server_fn::ServerFnError`
@@ -211,11 +256,29 @@ Curated symbols:
 - `axum::response::IntoResponse`
 - `axum::middleware`
 
+Curated concepts:
+
+- `leptos-components` via `component`, `components`, `props`, or `children`
+- `leptos-signals` via `signal`, `signals`, `reactivity`, `reactive state`, or
+  `state`
+
+Useful query examples:
+
+- Exact symbols: `leptos::prelude::Resource`,
+  `leptos::server_fn::ServerFnError`, `leptos_axum::LeptosRoutes`,
+  `axum::Router`
+- Aliases: `Resource::new`, `server fn error`, `route_layer`
+- Macro/attribute/function forms: `view!`, `#[component]`, `signal()`
+- Concepts: `component`, `signal`
+- Type/trait names: `IntoView`, `IntoResponse`
+
 Common errors:
 
-- `query must be a non-empty API symbol or alias`
-- `Unknown API symbol[ in crate <crate>]: <query>`
-- `Ambiguous API symbol '<query>'. Matching symbols: ...`
+- `query must be a non-empty API symbol, macro, concept, or alias`
+
+Unknown and ambiguous non-empty queries are represented in
+`structuredContent.lookup.status` as `not-found` or `ambiguous`; they do not
+return SDK tool errors.
 
 ### `leptos-axum-recipe`
 

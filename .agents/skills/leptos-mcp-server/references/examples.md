@@ -6,9 +6,12 @@ These examples show agent decisions. Use your MCP client's native tool-call UI w
 
 1. Call `search-docs` with a task query such as `signal read in view`.
 2. Call `get-documentation` for the best section, commonly `signals` or `views`.
-3. If the user supplied a snippet, call `leptos-diagnostics` with the relevant code only.
-4. Apply code changes with normal repo-editing tools.
-5. Verify with project-local Rust checks/tests.
+3. Call `lookup-api` for broad or exact terms as needed: `signal` for the
+   concept entry, `signal()` for the function entry, `view!` for the macro, and
+   `IntoView` for component return types.
+4. If the user supplied a snippet, call `leptos-diagnostics` with the relevant code only.
+5. Apply code changes with normal repo-editing tools.
+6. Verify with project-local Rust checks/tests.
 
 Example diagnostic input:
 
@@ -57,6 +60,18 @@ Prompt example:
   }
 }
 ```
+
+## Workflow: create or review components
+
+1. Call `lookup-api` with `component` for the concept entry. Use
+   `related_sections` to retrieve `components` and `views`.
+2. Call `lookup-api` with `#[component]` when you need the attribute macro, and
+   `IntoView` when you need the return trait.
+3. Call `lookup-api` with `view!` when checking template syntax or reactive view
+   behavior.
+4. If `lookup.status` is `ambiguous` or `not-found`, inspect `matches`,
+   `suggestions`, and `guidance`; refine with a fully qualified symbol, macro
+   form, or `crate` filter.
 
 ## Workflow: review SQL access in Leptos/Axum
 

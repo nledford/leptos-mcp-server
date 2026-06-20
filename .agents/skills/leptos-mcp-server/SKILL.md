@@ -21,7 +21,8 @@ Detailed reference:
 Use it for Leptos 0.8+ work when you need one of these grounded, local aids:
 
 - Find or retrieve curated docs for signals, components, views, resources, actions, server functions, routing, forms, error handling, suspense, Leptos Axum, Axum 0.8.9, or SSR/hydration/deployment.
-- Look up curated API symbols for `leptos`, `leptos_axum`, or `axum` before coding.
+- Look up curated API symbols, macro forms, aliases, and Leptos concepts for
+  `leptos`, `leptos_axum`, or `axum` before coding.
 - Get task recipes for Leptos + Axum SSR, server functions, static assets, custom Axum handlers, shared state/context, database query patterns, or JS-hosted wasm runtimes.
 - Run heuristic diagnostics on pasted Leptos/Rust-like code for common Leptos and Leptos Axum issues.
 - Render workflow prompts for SSR wiring, server functions, SQL access review, hydration debugging, or Axum integration review.
@@ -53,7 +54,8 @@ Tools:
 - `list-sections` — list embedded documentation sections and metadata.
 - `get-documentation` — fetch one section by canonical id or declared alias.
 - `search-docs` — search docs by task, API, or failure mode.
-- `lookup-api` — look up curated Leptos, `leptos_axum`, or Axum public API symbols.
+- `lookup-api` — look up curated Leptos, `leptos_axum`, or Axum public API
+  symbols, macro forms, aliases, and concepts.
 - `leptos-axum-recipe` — return task recipes with steps, example files, and validation.
 - `leptos-diagnostics` — analyze provided code and return structured heuristic diagnostics.
 
@@ -65,7 +67,11 @@ Use [tools.md](references/tools.md) for exact names, schemas, output shapes, res
 
 1. Start broad with `search-docs` for task/error wording, or `list-sections` when you need canonical ids.
 2. Use `get-documentation` or `resources/read` for the selected section before changing code.
-3. Use `lookup-api` before writing Leptos, `leptos_axum`, or Axum API calls from memory.
+3. Use `lookup-api` before writing Leptos, `leptos_axum`, or Axum API calls
+   from memory. It accepts exact symbols such as `leptos::prelude::Resource`,
+   aliases such as `Resource::new`, macro/attribute forms such as `view!` and
+   `#[component]`, trait/type names such as `IntoView`, and concepts such as
+   `component` or `signal`.
 4. Use `leptos-axum-recipe` for multi-step SSR/server-function/state/static-asset workflows.
 5. Use prompts to frame reviews or debugging plans; provide code/symptoms explicitly.
 6. Use `leptos-diagnostics` only on relevant snippets and still verify with normal Rust tooling.
@@ -76,6 +82,11 @@ Use [tools.md](references/tools.md) for exact names, schemas, output shapes, res
 - `get-documentation` requires a canonical section id or declared alias; arbitrary substring matching is intentionally rejected.
 - `leptos-diagnostics.code` must be non-empty and no more than 262144 bytes.
 - Successful tool calls return text plus `structuredContent`; SDK tool error results return `isError: true` with text only.
+- `lookup-api` returns successful structured results for exact matches,
+  concept matches, ambiguous matches, and unknown queries. Check
+  `structuredContent.lookup.status`, which is one of `found`, `ambiguous`, or
+  `not-found`. Unknown queries include `suggestions` and `guidance` rather than
+  a bare `Unknown API symbol` tool error. A blank query is still a tool error.
 - Prompt calls enforce required arguments; missing or blank required values and unknown prompt arguments return prompt argument errors.
 
 ## Security and privacy considerations
