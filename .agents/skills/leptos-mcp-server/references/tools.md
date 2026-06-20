@@ -4,9 +4,9 @@ Protocol summary:
 
 - Transport: stdio, newline-delimited JSON-RPC 2.0.
 - MCP protocol version advertised by `initialize`: `2025-11-25`.
-- Supported methods: `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`.
+- Supported methods: `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `completion/complete`, `prompts/list`, `prompts/get`.
 - Tool arguments are strict; unknown fields are rejected.
-- Stdio framing and malformed-input behavior are SDK-native; this project no longer adds a custom 1 MiB request-line cap.
+- Invalid stdio JSON returns sanitized JSON-RPC parse errors. Valid JSON that is not a valid MCP client message returns sanitized invalid-request errors. This project no longer adds a custom 1 MiB request-line cap.
 
 Successful tool calls return this outer shape:
 
@@ -102,8 +102,8 @@ Output shape:
 Common errors:
 
 - `section must be a non-empty canonical id or alias`
-- `Unknown documentation section: <query>`
-- `Ambiguous documentation section '<query>'. Matching sections: ...`
+- `Unknown documentation section`
+- `Ambiguous documentation section. Matching sections: ...`
 
 ### `search-docs`
 
@@ -345,7 +345,7 @@ Recipe ids:
 Common errors:
 
 - `recipe must be a non-empty recipe id or alias`
-- `Unknown Leptos Axum recipe: <recipe>`
+- `Unknown Leptos Axum recipe`
 
 ### `leptos-diagnostics`
 
@@ -376,7 +376,7 @@ Output shape:
   "diagnostics": [
     {
       "rule_id": "leptos.signal-get-in-view",
-      "severity": "error",
+      "severity": "warning",
       "message": "...",
       "span": { "line": 1, "column": 1 },
       "confidence": "medium",
@@ -384,8 +384,8 @@ Output shape:
     }
   ],
   "summary": {
-    "error_count": 1,
-    "warning_count": 0,
+    "error_count": 0,
+    "warning_count": 1,
     "info_count": 0
   }
 }
@@ -479,6 +479,19 @@ Resource URIs:
 }
 ```
 
+`completion/complete` supports canonical section completions for that resource
+template:
+
+```json
+{
+  "ref": { "type": "ref/resource", "uri": "leptos://docs/{section}" },
+  "argument": { "name": "section", "value": "ax" }
+}
+```
+
+Expected completion values include matching section ids such as `axum`.
+Unsupported completion refs or argument names return method-not-found (`-32601`).
+
 Common errors:
 
 - `resources/read params are required`
@@ -527,11 +540,12 @@ Common errors:
 
 - `prompts/get params are required`
 - `prompt name must be non-empty`
-- `Unknown prompt: <name>`
+- `Unknown prompt`
 
 ## JSON-RPC error behavior
 
-Standard JSON-RPC error codes are used:
+When the SDK emits a JSON-RPC error envelope, standard JSON-RPC error codes are
+used:
 
 - Parse error: `-32700`
 - Invalid request: `-32600`
@@ -540,3 +554,5 @@ Standard JSON-RPC error codes are used:
 - Internal error: `-32603`
 
 Notifications without `id` generally produce no response.
+Invalid raw JSON stdio frames return sanitized `-32700` parse-error envelopes
+with `id: null`.

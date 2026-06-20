@@ -13,8 +13,9 @@ request is opened.
 - The server now runs through `rust-mcp-sdk` 0.9.0 over stdio by default and
   advertises MCP protocol version `2025-11-25`.
 - Implemented capabilities are tools, concrete documentation resources,
-  `resources/templates/list` for `leptos://docs/{section}`, and prompts.
-- Completion APIs are intentionally not implemented or advertised.
+  `resources/templates/list` for `leptos://docs/{section}`, prompt rendering,
+  and completion for canonical documentation `section` values on that resource
+  template.
 - Network transports (`streamable-http`/`http` and `sse`) remain deferred and
   disabled. Selecting them fails closed before server startup/listener creation;
   they are not Cargo features in this release.
@@ -22,6 +23,9 @@ request is opened.
   claims are made because no network transport is implemented.
 - Protocol and validation errors now use SDK-native JSON-RPC/MCP behavior rather
   than the removed hand-rolled protocol layer.
+- Malformed stdio JSON is handled at the project transport boundary and now
+  returns sanitized JSON-RPC parse errors instead of being silently dropped by
+  the SDK reader.
 
 ### Migration notes from 0.1.0 to 0.2.0-alpha.*
 
@@ -30,18 +34,24 @@ request is opened.
   automation from `0.1.0`.
 - The advertised MCP protocol version changes to `2025-11-25` through
   `rust-mcp-sdk` 0.9.0.
-- Invalid requests, protocol failures, schema failures, and argument validation
-  now use SDK-native JSON-RPC/MCP error envelopes and messages. Tool-domain
+- Well-formed protocol failures, schema failures, and argument validation now
+  use SDK-native JSON-RPC/MCP error envelopes and messages. Invalid stdio JSON
+  now returns sanitized `-32700` parse errors with `id: null`; valid JSON that
+  is not a valid MCP client message returns sanitized `-32600` invalid-request
+  errors and preserves a valid string/integer `id` when present. Tool-domain
   failures are SDK tool error results, so custom `0.1.0` error envelope/text
   expectations may no longer match.
 - Successful tool calls include text content plus SDK `structuredContent` objects
   for automation; tool error results do not include structured content.
+- Tool calls now reject unknown argument fields for every tool, including
+  `list-sections`, so clients must send only the documented argument keys.
 - `resources/templates/list` exposes `leptos://docs/{section}` alongside concrete
-  `leptos://docs/<section>` resources. Completion remains absent.
+  `leptos://docs/<section>` resources. `completion/complete` now completes
+  canonical section values for that documentation resource template.
 - The previous custom 1 MiB stdin line-limit semantics were removed with the
-  hand-rolled line reader. Stdio framing and malformed-input behavior now come
-  from the SDK transport, while `leptos-diagnostics` still enforces its 256 KiB
-  code-input cap.
+  hand-rolled line reader. Stdio malformed-input behavior now comes from a
+  small project transport adapter before valid messages enter the SDK runtime,
+  while `leptos-diagnostics` still enforces its 256 KiB code-input cap.
 - Network transports remain deferred/disabled in this alpha and no auth, CORS,
   request-limit, or network-timeout behavior is implemented or claimed.
 
@@ -50,15 +60,14 @@ request is opened.
 - The SDK migration removes the previous hand-rolled stdio JSON-RPC line reader;
   the release no longer claims the custom 1 MiB stdin line bound as implemented
   behavior. The diagnostics tool still enforces its 256 KiB code-input cap.
-- Residual risk for Warp review: stdio transport behavior is SDK-native and does
-  not add a project-specific wall-clock read timeout.
+- Residual risk for Warp review: stdio transport behavior still does not add a
+  project-specific frame-size limit or wall-clock read timeout.
 - Release documentation now marks security-sensitive input validation,
   malformed-frame/frame-size behavior, dependency policy, release automation,
   release token, tag protection, and workflow permission changes as requiring
   Warp review before release.
 - Release notes must now call out intentional breaking behavior, including
-  security-sensitive malformed-client behavior inherited from the SDK stdio
-  transport.
+  security-sensitive malformed-client behavior in the stdio adapter.
 
 ### Breaking diagnostic behavior
 
@@ -89,10 +98,11 @@ request is opened.
   noisy short/common matches. Queries that previously received a low-confidence
   broad match may now return no result unless they use a stable identifier.
 - `lookup-api` now resolves exact symbols and declared aliases first, then uses
-  controlled prefix/token summary phases. Vague queries or same-tier multi-match
-  queries may now return `Ambiguous` or `Unknown` instead of a low-confidence
-  substring match; JSON-RPC clients should expect these as `-32602` validation
-  errors.
+  controlled prefix/token summary phases. Non-empty vague or unknown queries
+  return structured `ambiguous` or `not-found` lookup results with matches,
+  suggestions, guidance, and related documentation where available instead of
+  low-confidence substring matches or bare unknown-symbol tool errors. Blank
+  lookup queries remain tool errors.
 - For stable automation, prefer exact section IDs, resource URIs, declared
   aliases, and explicit crate filters such as `leptos`, `leptos_axum`, or `axum`.
 

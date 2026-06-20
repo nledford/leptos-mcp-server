@@ -197,8 +197,9 @@ Client smoke flow:
   search (`search-docs` for `Axum state`), one API lookup (`ResponseOptions` in
   `leptos_axum`), one recipe (`ssr-app`), resource listing/reading, and prompt
   listing/rendering.
-- Test an invalid tool argument or unknown lookup and confirm the client handles
-  SDK-native JSON-RPC/MCP errors without assuming `0.1.0` custom error text.
+- Test an invalid tool argument, unknown lookup, and malformed raw JSON line.
+  Confirm the client handles SDK-native JSON-RPC/MCP errors and the sanitized
+  stdio parse-error envelope without assuming `0.1.0` custom error text.
 - Record the client name/version, binary path, commit SHA, and any observed
   migration incompatibilities in the release PR or release notes.
 
@@ -215,7 +216,9 @@ Client smoke flow:
 - Review docs for migration context: README capability snapshot, migration notes,
   protocol section, performance/input limits, MCP smoke tests, and this release
   document must all agree that stdio is the only implemented transport,
-  completion is absent, and errors are SDK-native.
+  completion is limited to `leptos://docs/{section}` section values, parsed
+  protocol errors are SDK-native, and malformed raw stdio JSON returns a
+  sanitized parse-error envelope.
 - Review `CHANGELOG.md` for SDK migration scope, migration notes from `0.1.0`,
   security-sensitive notes, breaking diagnostic behavior, breaking prompt
   behavior, and breaking lookup/search behavior.
@@ -255,8 +258,8 @@ Client smoke flow:
   migration issues.
 - Confirm all known `0.1.0` to `0.2.0` migration differences are documented in
   README and `CHANGELOG.md`, including SDK-native errors, structured content,
-  resources/templates, absent completion, removed custom 1 MiB stdin line-limit
-  semantics, and deferred network transports.
+  resources/templates, limited resource-template completion, removed custom
+  1 MiB stdin line-limit semantics, and deferred network transports.
 - Confirm `CHANGELOG.md` no longer leaves release-critical migration context only
   under `Unreleased`; the generated `release-plz` release PR must move it into the
   `0.2.0` release entry or otherwise produce equivalent GitHub Release notes.
@@ -472,10 +475,11 @@ these categories:
 Security-sensitive malformed input and frame-size behavior changes must be called
 out in the release notes. For the `0.2.0-alpha.*` SDK migration line, this means
 calling out that the previous project-specific stdio JSON-RPC line reader and 1
-MiB line-bound semantics were removed, and that stdio framing and malformed-input
-behavior are now inherited from `rust-mcp-sdk`. Security-sensitive dependency,
-release policy, token, tag-protection, and workflow-permission changes must also
-be visible in the release PR review checklist and changelog before publishing.
+MiB line-bound semantics were removed, and that malformed raw stdio JSON now
+returns a sanitized parse-error envelope before valid messages enter
+`rust-mcp-sdk`. Security-sensitive dependency, release policy, token,
+tag-protection, and workflow-permission changes must also be visible in the
+release PR review checklist and changelog before publishing.
 
 ## Breaking-change release note policy
 
@@ -518,7 +522,7 @@ in a release include:
 
 - SDK migration stdio behavior: removal of the hand-rolled JSON-RPC line reader,
   removal of the project-specific 1 MiB stdin line-bound contract, and adoption
-  of SDK-native stdio framing and malformed-input behavior.
+  of the sanitized stdio malformed-input adapter in front of the SDK runtime.
 - Diagnostic behavior: changed rule severities, confidence levels, and
   any client guidance about treating diagnostics as advisory versus
   compiler-equivalent.

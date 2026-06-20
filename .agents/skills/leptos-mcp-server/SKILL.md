@@ -59,7 +59,7 @@ Tools:
 - `leptos-axum-recipe` — return task recipes with steps, example files, and validation.
 - `leptos-diagnostics` — analyze provided code and return structured heuristic diagnostics.
 
-Resources use `leptos://docs/<section-id>` URIs and expose the template `leptos://docs/{section}`. Prompts include `wire-leptos-axum-ssr`, `add-server-function`, `review-sql-access`, `debug-hydration`, and `review-axum-integration`.
+Resources use `leptos://docs/<section-id>` URIs and expose the template `leptos://docs/{section}`. `completion/complete` can complete canonical `section` values for that resource template. Prompts include `wire-leptos-axum-ssr`, `add-server-function`, `review-sql-access`, `debug-hydration`, and `review-axum-integration`.
 
 Use [tools.md](references/tools.md) for exact names, schemas, output shapes, resources, prompts, and known error messages.
 
@@ -88,6 +88,9 @@ Use [tools.md](references/tools.md) for exact names, schemas, output shapes, res
   `not-found`. Unknown queries include `suggestions`, `guidance`, and, when the
   term appears in embedded docs, `documentation_matches` rather than a bare
   `Unknown API symbol` tool error. A blank query is still a tool error.
+- `completion/complete` is limited to `leptos://docs/{section}` with argument
+  name `section`; unsupported completion refs or argument names return
+  method-not-found.
 - Prompt calls enforce required arguments; missing or blank required values and unknown prompt arguments return prompt argument errors.
 
 ## Security and privacy considerations
@@ -95,7 +98,9 @@ Use [tools.md](references/tools.md) for exact names, schemas, output shapes, res
 - The server is documentation-only/read-only: no filesystem writes, command execution, runtime network fetches, database connections, migrations, or query execution.
 - User-supplied code/text passed to diagnostics or prompts is echoed in MCP responses and may be logged by the MCP client. Do not send secrets, tokens, credentials, or sensitive proprietary code unless the client environment is trusted.
 - SQL guidance is for application code patterns only; it does not grant database access.
-- Stdio framing and malformed-input behavior are SDK-native; diagnostics code is capped at 256 KiB.
+- Invalid stdio JSON returns sanitized JSON-RPC parse errors. Valid JSON that is
+  not a valid MCP client message returns sanitized invalid-request errors.
+  Diagnostics code is capped at 256 KiB.
 
 ## Verification checklist
 

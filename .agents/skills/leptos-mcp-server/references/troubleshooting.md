@@ -15,11 +15,16 @@
 
 ## JSON-RPC or MCP errors
 
-- Invalid JSON returns parse error `-32700`.
+- Well-formed invalid JSON-RPC requests return SDK-native JSON-RPC/MCP errors
+  when the SDK can parse and classify the request.
+- Invalid raw JSON stdio frames return sanitized JSON-RPC `-32700` parse errors
+  with `id: null`.
 - Missing/invalid `jsonrpc`, method, or params returns SDK-native JSON-RPC/MCP errors.
 - Unknown method returns `-32601`.
 - Unknown tool names or bad tool params return SDK tool error results where applicable.
-- Stdio framing and malformed input are handled by `rust-mcp-sdk`; this project no longer adds a custom 1 MiB request-line cap.
+- Stdio malformed input is filtered by the project transport adapter before
+  valid messages enter `rust-mcp-sdk`; this project no longer adds a custom
+  1 MiB request-line cap.
 
 ## Tool argument errors
 

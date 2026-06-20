@@ -40,11 +40,16 @@ Leptos/Axum applications.
   `leptos://docs/{section}` is exposed through `resources/templates/list`.
 - Prompts: `wire-leptos-axum-ssr`, `add-server-function`, `review-sql-access`,
   `debug-hydration`, and `review-axum-integration` are supported.
-- Errors: protocol and validation errors use SDK-native JSON-RPC/MCP error
+- Completions: `completion/complete` is advertised for the documentation
+  resource template and completes canonical `section` values for
+  `leptos://docs/{section}`. Unsupported completion refs/arguments return
+  method-not-found.
+- Errors: malformed stdio JSON returns sanitized JSON-RPC parse errors,
+  malformed JSON-RPC client messages return sanitized invalid-request errors,
+  and parsed protocol/validation failures use SDK-native JSON-RPC/MCP error
   behavior. Tool-domain failures are returned as SDK tool error results.
-- Intentionally unsupported: completion APIs are not implemented or advertised,
-  and no authentication, authorization, CORS, or network security claims are made
-  because network transports remain disabled.
+- Intentionally unsupported: authentication, authorization, CORS, and network
+  security behavior are absent because network transports remain disabled.
 
 ## Architecture
 
@@ -53,6 +58,9 @@ Leptos/Axum applications.
 - `src/sdk.rs` adapts the application facade to `rust-mcp-sdk` tools,
   resources, resource templates, prompts, initialization metadata, and
   SDK-native error behavior.
+- `src/stdio_transport.rs` is the stdio boundary adapter. It keeps valid
+  messages on the SDK runtime path while returning sanitized JSON-RPC errors
+  for malformed JSON or malformed JSON-RPC frames before the SDK can drop them.
 - `src/tools.rs` contains the tool handlers and response models.
 - `src/docs.rs` indexes the embedded Markdown documentation in `docs/` and maps
   it to `leptos://docs/<section>` resources.
@@ -237,9 +245,13 @@ can be configured and verified.
 
 ### Performance and input limits
 
-- Stdio transport framing, message-size behavior, malformed-input handling, and
-  read timing are SDK-native. This project no longer adds the previous custom
-  1 MiB stdin line cap from the removed hand-rolled reader.
+- Stdio uses newline-delimited JSON-RPC. Invalid JSON frames return
+  `-32700` parse errors with `id: null`; valid JSON that is not a valid MCP
+  client message returns `-32600` invalid-request errors and preserves a valid
+  string/integer `id` when one is present. Valid client messages continue
+  through `rust-mcp-sdk`.
+- The previous custom 1 MiB stdin line cap is not implemented. There is still no
+  project-specific stdio frame-size limit or wall-clock read timeout.
 - `leptos-diagnostics` rejects empty code and code larger than 256 KiB before
   running heuristic analysis. This is the remaining project-specific tool input
   size guard.
@@ -450,10 +462,13 @@ error behavior in automation.
 - Protocol/runtime: the server now uses `rust-mcp-sdk` 0.9.0 and advertises MCP
   protocol version `2025-11-25` instead of the previous hand-rolled protocol
   adapter behavior.
-- Error envelopes: invalid JSON-RPC, protocol, schema, and argument validation
-  failures now use SDK-native JSON-RPC/MCP error shapes and messages. Tool-domain
-  failures are returned as SDK tool error results, so clients should not depend
-  on `0.1.0` custom error text or envelope details.
+- Error envelopes: well-formed JSON-RPC protocol, schema, and argument
+  validation failures now use SDK-native JSON-RPC/MCP error shapes and messages.
+  Malformed stdio JSON now returns a sanitized `-32700` parse error, and valid
+  JSON that is not a valid MCP client message returns a sanitized `-32600`
+  invalid-request error. Tool-domain failures are returned as SDK tool error
+  results, so clients should not depend on `0.1.0` custom error text or envelope
+  details.
 - Structured output: successful tool calls still include human-readable text, but
   clients should prefer SDK `structuredContent` objects for automation. Tool
   error results do not include structured content.
@@ -461,11 +476,12 @@ error behavior in automation.
   and unknown prompt arguments with SDK invalid-params prompt errors.
 - Resources/templates: concrete docs remain available as `leptos://docs/<section>`
   resources, and `resources/templates/list` now exposes the template
-  `leptos://docs/{section}`. Completion remains intentionally absent.
+  `leptos://docs/{section}`. `completion/complete` supports canonical section
+  value completion for that template.
 - Stdio limits: the custom 1 MiB stdin line-limit semantics from the manual
-  reader are removed; stdio framing and malformed-input behavior are inherited
-  from the SDK transport. The `leptos-diagnostics` tool still enforces its
-  256 KiB code-input guard.
+  reader are removed. Stdio malformed-input handling is now provided by the
+  project adapter before valid messages enter the SDK runtime. The
+  `leptos-diagnostics` tool still enforces its 256 KiB code-input guard.
 - Network transports: `streamable-http`/`http` and `sse` remain deferred. Selecting
   them fails closed before tracing, server startup, or listener creation; no
   authentication, CORS, HTTP request-limit, or network-timeout behavior is
@@ -476,22 +492,27 @@ error behavior in automation.
 This server implements MCP over stdio using newline-delimited JSON-RPC 2.0.
 It uses `rust-mcp-sdk` 0.9.0, advertises MCP protocol version `2025-11-25`,
 and supports `initialize`, `tools/list`, `tools/call`, `resources/list`,
-`resources/read`, `resources/templates/list`, `prompts/list`, and
-`prompts/get`.
+`resources/read`, `resources/templates/list`, `completion/complete`,
+`prompts/list`, and `prompts/get`.
 
-Invalid JSON-RPC requests return SDK-native JSON-RPC/MCP error envelopes.
+Malformed stdio JSON frames return sanitized JSON-RPC `-32700` parse errors
+with `id: null`. Valid JSON frames that are not valid MCP client messages return
+sanitized `-32600` invalid-request errors and preserve a valid string/integer
+`id` when one is available. Well-formed but invalid parsed MCP requests return
+SDK-native JSON-RPC/MCP error envelopes where the SDK can classify them.
 Documentation lookup requires a canonical section id or declared alias from
 `list-sections`; partial substring lookup is intentionally rejected to avoid
 returning plausible but incorrect documentation.
 
 Tool arguments are validated strictly against the advertised schemas. Extra
-fields are rejected. The previous hand-rolled 1 MiB stdio line cap is not part
-of the SDK stdio transport; `leptos-diagnostics` still accepts code payloads up
-to 256 KiB.
+fields are rejected. The previous hand-rolled 1 MiB stdio line cap is no longer
+implemented; `leptos-diagnostics` still accepts code payloads up to 256 KiB.
 
-Completion is intentionally absent from advertised capabilities. Authentication,
-authorization, CORS policy, HTTP request limits, and network timeouts are also
-absent because no network transport is implemented.
+Completion is advertised only for `leptos://docs/{section}` resource-template
+section values. Unsupported completion refs or argument names return
+method-not-found. Authentication, authorization, CORS policy, HTTP request
+limits, and network timeouts are absent because no network transport is
+implemented.
 
 Documentation responses include the embedded source path, source URL, reviewed
 date, target crate versions, related sections, task tags, common errors,
@@ -515,12 +536,14 @@ MCP server.
 - stdout is reserved for JSON-RPC responses. Use stderr or `RUST_LOG` for logs;
   redirect stderr when you need raw JSON output in shell pipelines.
 - Tool arguments are strict. Extra fields and unknown tool names return SDK tool
-  error results where applicable; malformed protocol or schema requests use
-  SDK-native JSON-RPC/MCP errors.
+  error results where applicable; well-formed protocol or schema errors use
+  SDK-native JSON-RPC/MCP errors. Invalid raw JSON returns a sanitized parse
+  error before it reaches the SDK.
 - `get-documentation` requires a canonical section id or alias from
   `list-sections`; arbitrary substrings are rejected.
-- The SDK stdio transport replaced the previous custom JSON-RPC line reader; the
-  server still caps `leptos-diagnostics` code payloads at 256 KiB.
+- The previous custom JSON-RPC line reader has been replaced by a narrow stdio
+  adapter plus the SDK runtime; the server still caps `leptos-diagnostics` code
+  payloads at 256 KiB.
 
 ## License
 
