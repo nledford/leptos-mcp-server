@@ -1627,6 +1627,14 @@ mod tests {
     }
 
     #[test]
+    fn search_normalizes_pathological_mixed_case_queries() {
+        let ids = search_ids("aXuM StAtE");
+
+        assert_eq!(ids.first(), Some(&"axum"));
+        assert!(ids.contains(&"leptos-axum"));
+    }
+
+    #[test]
     fn search_order_is_deterministic_for_repeated_queries() {
         let first = search_ids("sqlx");
         let second = search_ids("sqlx");

@@ -1197,23 +1197,26 @@ pub const MIN_QUERY_TOKEN_LEN: usize = 3;
 pub fn normalize_query(value: &str) -> String {
     let mut normalized = String::new();
     let mut previous_was_separator = true;
-    let mut previous_was_lowercase_or_digit = false;
+    let mut alphanumeric_run = String::new();
 
     for character in value.trim().chars() {
         if character.is_ascii_alphanumeric() {
-            if character.is_ascii_uppercase() && previous_was_lowercase_or_digit {
-                push_separator(&mut normalized, &mut previous_was_separator);
-            }
-
-            normalized.push(character.to_ascii_lowercase());
-            previous_was_separator = false;
-            previous_was_lowercase_or_digit =
-                character.is_ascii_lowercase() || character.is_ascii_digit();
+            alphanumeric_run.push(character);
         } else {
+            push_alphanumeric_run(
+                &mut normalized,
+                &mut previous_was_separator,
+                &alphanumeric_run,
+            );
+            alphanumeric_run.clear();
             push_separator(&mut normalized, &mut previous_was_separator);
-            previous_was_lowercase_or_digit = false;
         }
     }
+    push_alphanumeric_run(
+        &mut normalized,
+        &mut previous_was_separator,
+        &alphanumeric_run,
+    );
 
     normalized.trim_matches('-').to_string()
 }
@@ -1235,6 +1238,57 @@ fn push_separator(value: &mut String, previous_was_separator: &mut bool) {
         value.push('-');
         *previous_was_separator = true;
     }
+}
+
+fn push_alphanumeric_run(normalized: &mut String, previous_was_separator: &mut bool, run: &str) {
+    if run.is_empty() {
+        return;
+    }
+
+    let split_camel_case = !is_pathological_mixed_case(run);
+    let mut previous_was_lowercase_or_digit = false;
+
+    for character in run.chars() {
+        if split_camel_case && character.is_ascii_uppercase() && previous_was_lowercase_or_digit {
+            push_separator(normalized, previous_was_separator);
+        }
+
+        normalized.push(character.to_ascii_lowercase());
+        *previous_was_separator = false;
+        previous_was_lowercase_or_digit =
+            character.is_ascii_lowercase() || character.is_ascii_digit();
+    }
+}
+
+fn is_pathological_mixed_case(value: &str) -> bool {
+    let mut uppercase_count = 0usize;
+    let mut lowercase_count = 0usize;
+    let mut current_lowercase_run = 0usize;
+    let mut max_lowercase_run = 0usize;
+    let mut case_transitions = 0usize;
+    let mut previous_was_uppercase = None;
+
+    for character in value
+        .chars()
+        .filter(|character| character.is_ascii_alphabetic())
+    {
+        let is_uppercase = character.is_ascii_uppercase();
+        if is_uppercase {
+            uppercase_count += 1;
+            current_lowercase_run = 0;
+        } else {
+            lowercase_count += 1;
+            current_lowercase_run += 1;
+            max_lowercase_run = max_lowercase_run.max(current_lowercase_run);
+        }
+
+        if previous_was_uppercase.is_some_and(|previous| previous != is_uppercase) {
+            case_transitions += 1;
+        }
+        previous_was_uppercase = Some(is_uppercase);
+    }
+
+    uppercase_count >= 2 && lowercase_count >= 2 && max_lowercase_run <= 1 && case_transitions >= 3
 }
 
 pub fn normalize(value: &str) -> String {
@@ -1319,6 +1373,8 @@ mod tests {
             normalize("server function handler"),
             "server-function-handler"
         );
+        assert_eq!(normalize("aXuM StAtE"), "axum-state");
+        assert_eq!(normalize("ServerFnError"), "server-fn-error");
 
         assert_eq!(
             query_tokens("#[server] leptos_axum::ResponseOptions as"),
